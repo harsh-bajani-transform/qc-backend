@@ -1,0 +1,29 @@
+{
+  "name": "qc-backend",
+  "version": "1.0.0",
+  "description": "backend for qc eval",
+  "license": "ISC",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "ts-node index.ts",
+    "dev": "nodemon index.ts"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.3",
+    "express": "^5.2.1",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/nodemailer": "^7.0.4",
+    "bcryptjs": "^3.0.3",
+    "dayjs": "^1.11.19",
+    "dotenv": "^17.2.3",
+    "eslint": "^9.39.2",
+    "nodemailer": "^7.0.12"
+  }
+}
