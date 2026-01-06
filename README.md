@@ -43,15 +43,8 @@ DB_URI=mongodb://localhost:27017/qc-backend
 JWT_SECRET=your-super-secret-jwt-key
 JWT_EXPIRES_IN=7d
 
-# Arcjet (Security)
-ARCJET_ENV=development
-ARCJET_KEY=your-arcjet-key
-
-# QStash (Message Queue)
-QSTASH_TOKEN=your-qstash-token
-QSTASH_URL=https://qstash.upstash.io
-
 # Email Configuration
+EMAIL_USER=your-email-id
 EMAIL_PASSWORD=your-email-password
 ```
 
