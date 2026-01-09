@@ -1,15 +1,19 @@
-import express, { Request, Response } from 'express';
-import { PORT } from './config/env';
+import express, { Request, Response } from "express";
+import { PORT } from "./config/env";
 
 const app = express();
 
-app.get('/', (req: Request, res: Response) => {
-  res.send('Hello, QC Backend!');
+app.get("/api/v1", (req: Request, res: Response) => {
+  res.send("Hello, TFS QC Eval Backend!");
 });
 
-app.get('/health', (req: Request, res: Response) => {
-  res.send('OK');
+app.get("/health", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  });
 });
+
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
