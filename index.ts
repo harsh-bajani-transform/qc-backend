@@ -7,7 +7,7 @@ app.get("/api/v1", (req: Request, res: Response) => {
   res.send("Hello, TFS QC Eval Backend!");
 });
 
-app.get("/health", (req: Request, res: Response) => {
+app.get("/api/v1/health", (req: Request, res: Response) => {
   res.status(200).json({
     status: "ok",
     timestamp: new Date().toISOString(),
