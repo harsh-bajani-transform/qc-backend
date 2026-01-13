@@ -10,10 +10,10 @@ export const getQCPerformanceByUser = async (req: Request, res: Response) => {
     
     const [qcRecords] = await connection.execute(
       `SELECT 
-        id, user_id, project_id, task_id, tracker_id, file_path,
+        id, user_id, project_id, task_id, tracker_id, file_name,
         total_records_processed, duplicates_found, duplicates_removed, unique_records,
         important_columns, processing_status, qc_score, qc_agent_id, qc_notes,
-        processing_time_ms, created_at, updated_at
+        created_at, updated_at
       FROM qc_performance 
       WHERE user_id = ? 
       ORDER BY created_at DESC`,
@@ -46,10 +46,10 @@ export const getQCPerformanceByProject = async (req: Request, res: Response) => 
     
     const [qcRecords] = await connection.execute(
       `SELECT 
-        qc.id, qc.user_id, qc.project_id, qc.task_id, qc.tracker_id, qc.file_path,
+        qc.id, qc.user_id, qc.project_id, qc.task_id, qc.tracker_id, qc.file_name,
         qc.total_records_processed, qc.duplicates_found, qc.duplicates_removed, qc.unique_records,
         qc.important_columns, qc.processing_status, qc.qc_score, qc.qc_agent_id, qc.qc_notes,
-        qc.processing_time_ms, qc.created_at, qc.updated_at,
+        qc.created_at, qc.updated_at,
         u.username as agent_name
       FROM qc_performance qc
       LEFT JOIN tfs_user u ON qc.user_id = u.user_id
@@ -84,10 +84,10 @@ export const getQCPerformanceByTask = async (req: Request, res: Response) => {
     
     const [qcRecords] = await connection.execute(
       `SELECT 
-        id, user_id, project_id, task_id, tracker_id, file_path,
+        id, user_id, project_id, task_id, tracker_id, file_name,
         total_records_processed, duplicates_found, duplicates_removed, unique_records,
         important_columns, processing_status, qc_score, qc_agent_id, qc_notes,
-        processing_time_ms, created_at, updated_at
+        created_at, updated_at
       FROM qc_performance 
       WHERE task_id = ? 
       ORDER BY created_at DESC`,
@@ -192,7 +192,6 @@ export const getQCSummary = async (req: Request, res: Response) => {
         SUM(duplicates_found) as total_duplicates_found,
         SUM(duplicates_removed) as total_duplicates_removed,
         SUM(unique_records) as total_unique_records,
-        AVG(processing_time_ms) as avg_processing_time,
         AVG(qc_score) as avg_qc_score,
         COUNT(CASE WHEN processing_status = 'completed' THEN 1 END) as completed_files,
         COUNT(CASE WHEN processing_status = 'failed' THEN 1 END) as failed_files
@@ -245,10 +244,10 @@ export const getAllQCPerformance = async (req: Request, res: Response) => {
     
     const [qcRecords] = await connection.execute(
       `SELECT 
-        qp.id, qp.user_id, qp.project_id, qp.task_id, qp.tracker_id, qp.file_path,
+        qp.id, qp.user_id, qp.project_id, qp.task_id, qp.tracker_id, qp.file_name,
         qp.total_records_processed, qp.duplicates_found, qp.duplicates_removed, qp.unique_records,
         qp.important_columns, qp.processing_status, qp.qc_score, qp.qc_agent_id, qp.qc_notes,
-        qp.processing_time_ms, qp.created_at, qp.updated_at,
+        qp.created_at, qp.updated_at,
         u.username as agent_name,
         t.task_name,
         p.project_name
