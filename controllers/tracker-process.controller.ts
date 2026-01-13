@@ -136,7 +136,6 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   // Process data rows (skip header row)
                   let sheetRecordsProcessed = 0;
                   let sheetDuplicatesSkipped = 0;
-                  const duplicateRows: number[] = []; // Track row numbers to remove
                   
                   console.log(`Starting to process ${worksheet.rowCount - 1} data rows...`);
                   
@@ -172,10 +171,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     ) as [any[], any];
                     
                     if (existingRows.length > 0) {
-                      duplicateRows.push(rowNumber); // Mark row for removal
                       sheetDuplicatesSkipped++;
                       trackerDuplicatesFound++;
-                      console.log(`Duplicate found in row ${rowNumber}, marking for removal...`);
+                      console.log(`Duplicate found in row ${rowNumber}, skipping database insertion...`);
                       continue;
                     }
                     
@@ -199,25 +197,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     console.log(`Inserted record from row ${rowNumber}`);
                   }
                   
-                  // Remove duplicate rows from Excel file
-                  if (duplicateRows.length > 0) {
-                    console.log(`Removing ${duplicateRows.length} duplicate rows from Excel file...`);
-                    
-                    // Sort rows in descending order to remove from bottom to top
-                    duplicateRows.sort((a, b) => b - a);
-                    
-                    duplicateRows.forEach(rowNumber => {
-                      worksheet.spliceRows(rowNumber, 1);
-                    });
-                    
-                    // Save cleaned Excel file
-                    await workbook.xlsx.writeFile(filePath);
-                    console.log(`Excel file cleaned and saved: ${filePath}`);
-                  }
-                  
                   totalRecordsProcessed += sheetRecordsProcessed;
                   totalDuplicatesSkipped += sheetDuplicatesSkipped;
-                  console.log(`Sheet ${worksheet.name}: ${sheetRecordsProcessed} records inserted, ${sheetDuplicatesSkipped} duplicates removed from file`);
+                  console.log(`Sheet ${worksheet.name}: ${sheetRecordsProcessed} records inserted, ${sheetDuplicatesSkipped} duplicates skipped`);
                 }
               } catch (processingError) {
                 console.error('Error during Excel processing:', processingError);
@@ -243,7 +225,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   [
                     trackerRecordsProcessed,
                     trackerDuplicatesFound,
-                    trackerDuplicatesFound,
+                    0, // duplicates_removed is 0 since we don't remove from file
                     trackerRecordsProcessed,
                     finalStatus,
                     qcPerformanceId
@@ -252,7 +234,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               }
               
               console.log(`Tracker ${tracker.tracker_id} processing completed with status: ${finalStatus}`);
-              console.log(`QC Performance: ${trackerRecordsProcessed} unique, ${trackerDuplicatesFound} duplicates removed`);
+              console.log(`QC Performance: ${trackerRecordsProcessed} unique records, ${trackerDuplicatesFound} duplicates skipped`);
               
             } catch (excelError) {
               console.log('Error reading Excel file:', excelError instanceof Error ? excelError.message : String(excelError));
