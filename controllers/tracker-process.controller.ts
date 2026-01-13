@@ -35,7 +35,6 @@ export const processExcelFiles = async (req: Request, res: Response) => {
     const connection = await get_db_connection();
     let totalRecordsProcessed = 0;
     let totalDuplicatesSkipped = 0;
-    const processingStartTime = Date.now();
     
     for (const tracker of trackersWithFiles) {
       const filePath = tracker.tracker_file;
@@ -233,14 +232,13 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               
               // Update status for this tracker file
               const finalStatus = fileProcessingSuccess ? 'completed' : 'failed';
-              const processingTime = Date.now() - processingStartTime;
               
               // Update QC performance record
               if (qcPerformanceId) {
                 await connection.execute(
                   `UPDATE qc_performance 
                    SET total_records_processed = ?, duplicates_found = ?, duplicates_removed = ?, 
-                       unique_records = ?, processing_status = ?, processing_time_ms = ?, updated_at = CURRENT_TIMESTAMP
+                       unique_records = ?, processing_status = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?`,
                   [
                     trackerRecordsProcessed,
@@ -248,7 +246,6 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     trackerDuplicatesFound,
                     trackerRecordsProcessed,
                     finalStatus,
-                    processingTime,
                     qcPerformanceId
                   ]
                 );
