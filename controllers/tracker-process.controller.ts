@@ -32,11 +32,39 @@ export const processExcelFiles = async (req: Request, res: Response) => {
     
     console.log(`Found ${trackersWithFiles.length} trackers with files`);
     
+    // Filter to only include files that actually exist
+    const existingFiles = trackersWithFiles.filter((tracker: any) => {
+      const exists = fs.existsSync(tracker.tracker_file);
+      if (!exists) {
+        console.log(`Skipping tracker ${tracker.tracker_id} - file not found: ${tracker.tracker_file}`);
+      }
+      return exists;
+    });
+    
+    console.log(`Found ${existingFiles.length} files that actually exist`);
+    
+    if (existingFiles.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No valid files found to process',
+        data: {
+          processedFiles: 0,
+          recordsInserted: 0,
+          duplicatesRemoved: 0
+        }
+      });
+    }
+    
     const connection = await get_db_connection();
     let totalRecordsProcessed = 0;
     let totalDuplicatesSkipped = 0;
+    let filesActuallyProcessed = 0;
     
-    for (const tracker of trackersWithFiles) {
+    // Track hashes from current processing session to avoid self-duplicates within same file
+    const currentSessionHashes = new Set<string>();
+    
+    // Process files in parallel for better performance
+    const fileProcessingPromises = existingFiles.map(async (tracker: any) => {
       const filePath = tracker.tracker_file;
       console.log(`\n=== Processing Tracker ID: ${tracker.tracker_id} ===`);
       console.log(`File path: ${filePath}`);
@@ -59,7 +87,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
         
         if (taskRows.length === 0) {
           console.log(`Task ID ${tracker.task_id} not found`);
-          continue;
+          return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
         }
         
         const task = taskRows[0];
@@ -70,27 +98,37 @@ export const processExcelFiles = async (req: Request, res: Response) => {
         console.log(`Task: ${task.task_name}`);
         console.log(`Important columns: ${importantColumns.join(', ')}`);
         
-        if (fs.existsSync(filePath)) {
-          const stats = fs.statSync(filePath);
-          console.log(`File size: ${stats.size} bytes`);
+        const stats = fs.statSync(filePath);
+        console.log(`File size: ${stats.size} bytes`);
+        
+        const ext = path.extname(filePath).toLowerCase();
+        console.log(`File extension detected: ${ext}`);
+        
+        if (ext === '.xlsx' || ext === '.xls') {
+          console.log('Excel file detected - reading content...');
           
-          const ext = path.extname(filePath).toLowerCase();
-          console.log(`File extension detected: ${ext}`);
+          // Check if QC record already exists for this file
+          const [existingQC] = await connection.execute(
+            'SELECT id, processing_status FROM qc_performance WHERE file_name = ?',
+            [path.basename(filePath)]
+          ) as [any[], any];
           
-          if (ext === '.xlsx' || ext === '.xls') {
-            console.log('Excel file detected - reading content...');
+          let isAlreadyProcessed = false;
+          
+          if (existingQC.length > 0) {
+            console.log(`QC record already exists for file: ${filePath} (ID: ${existingQC[0].id})`);
+            qcPerformanceId = existingQC[0].id;
             
-            // Check if QC record already exists for this file
-            const [existingQC] = await connection.execute(
-              'SELECT id FROM qc_performance WHERE file_name = ?',
-              [path.basename(filePath)]
-            ) as [any[], any];
-            
-            if (existingQC.length > 0) {
-              console.log(`QC record already exists for file: ${filePath} (ID: ${existingQC[0].id})`);
-              qcPerformanceId = existingQC[0].id;
-            } else {
-              // Only create QC performance record for Excel files if it doesn't exist
+            // Check if file was already successfully processed
+            if (existingQC[0].processing_status === 'completed') {
+              console.log(`File already successfully processed, skipping QC updates`);
+              isAlreadyProcessed = true;
+            }
+          }
+          
+          if (!isAlreadyProcessed) {
+            // Only create QC performance record for Excel files if it doesn't exist
+            if (existingQC.length === 0) {
               const [qcResult] = await connection.execute(
                 `INSERT INTO qc_performance 
                  (user_id, project_id, task_id, tracker_id, file_name, important_columns, processing_status) 
@@ -108,6 +146,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               
               qcPerformanceId = qcResult.insertId;
               console.log(`QC performance record created with ID: ${qcPerformanceId}`);
+            } else {
+              // Reset status to 'processing' for re-processing
+              await connection.execute(
+                'UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                ['processing', qcPerformanceId]
+              );
             }
             
             try {
@@ -139,6 +183,10 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   
                   console.log(`Starting to process ${worksheet.rowCount - 1} data rows...`);
                   
+                  // Collect all hashes first for batch lookup
+                  const allHashes: string[] = [];
+                  const rowHashes: { rowNumber: number; hashValue: string; record: any }[] = [];
+                  
                   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
                     const row = worksheet.getRow(rowNumber);
                     if (!row || row.values.length === 0) continue;
@@ -164,18 +212,41 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     
                     const hashValue = crypto.createHash('sha256').update(hashInput).digest('hex');
                     
-                    // Check for duplicate
-                    const [existingRows] = await connection.execute(
-                      'SELECT id FROM tracker_records WHERE task_id = ? AND hash_value = ?',
-                      [tracker.task_id, hashValue]
-                    ) as [any[], any];
-                    
-                    if (existingRows.length > 0) {
+                    // Check for duplicate in current session first
+                    if (currentSessionHashes.has(hashValue)) {
                       sheetDuplicatesSkipped++;
                       trackerDuplicatesFound++;
-                      console.log(`Duplicate found in row ${rowNumber}, skipping database insertion...`);
+                      console.log(`Duplicate found in current session (row ${rowNumber}), skipping...`);
                       continue;
                     }
+                    
+                    allHashes.push(hashValue);
+                    rowHashes.push({ rowNumber, hashValue, record });
+                  }
+                  
+                  // Batch lookup for all hashes in database
+                  let existingHashes: Set<string> = new Set();
+                  if (allHashes.length > 0) {
+                    const placeholders = allHashes.map(() => '?').join(',');
+                    const [existingRows] = await connection.execute(
+                      `SELECT DISTINCT hash_value FROM tracker_records WHERE task_id = ? AND hash_value IN (${placeholders})`,
+                      [tracker.task_id, ...allHashes]
+                    ) as [any[], any];
+                    
+                    existingHashes = new Set(existingRows.map(row => row.hash_value));
+                  }
+                  
+                  // Process records with batch results
+                  for (const { rowNumber, hashValue, record } of rowHashes) {
+                    if (existingHashes.has(hashValue)) {
+                      sheetDuplicatesSkipped++;
+                      trackerDuplicatesFound++;
+                      console.log(`Duplicate found in database (row ${rowNumber}), skipping...`);
+                      continue;
+                    }
+                    
+                    // Add to current session hashes
+                    currentSessionHashes.add(hashValue);
                     
                     // Insert new record
                     await connection.execute(
@@ -236,6 +307,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               console.log(`Tracker ${tracker.tracker_id} processing completed with status: ${finalStatus}`);
               console.log(`QC Performance: ${trackerRecordsProcessed} unique records, ${trackerDuplicatesFound} duplicates skipped`);
               
+              return { processed: true, recordsInserted: trackerRecordsProcessed, duplicatesSkipped: trackerDuplicatesFound };
+              
             } catch (excelError) {
               console.log('Error reading Excel file:', excelError instanceof Error ? excelError.message : String(excelError));
               
@@ -246,14 +319,15 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   ['failed', qcPerformanceId]
                 );
               }
+              return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
             }
           } else {
-            console.log(`File type ${ext} not supported - only Excel files are processed`);
-            // No QC record created for non-Excel files
+            console.log(`Skipping file processing - already completed: ${filePath}`);
+            return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
           }
         } else {
-          console.log('File does not exist at path:', filePath);
-          // No QC record created for missing files
+          console.log(`File type ${ext} not supported - only Excel files are processed`);
+          return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
         }
       } catch (error) {
         console.log('Error reading file:', error instanceof Error ? error.message : String(error));
@@ -265,8 +339,17 @@ export const processExcelFiles = async (req: Request, res: Response) => {
             ['failed', qcPerformanceId]
           );
         }
+        return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
       }
-    }
+    });
+    
+    // Wait for all files to process in parallel
+    const results = await Promise.all(fileProcessingPromises);
+    
+    // Calculate totals from parallel processing results
+    filesActuallyProcessed = results.filter(r => r.processed).length;
+    totalRecordsProcessed = results.reduce((sum, r) => sum + r.recordsInserted, 0);
+    totalDuplicatesSkipped = results.reduce((sum, r) => sum + r.duplicatesSkipped, 0);
     
     await connection.end();
     
@@ -278,9 +361,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
       success: true,
       message: 'Excel files processed and data stored successfully',
       data: {
-        processedFiles: trackersWithFiles.length,
+        processedFiles: filesActuallyProcessed,
         recordsInserted: totalRecordsProcessed,
-        duplicatesRemoved: totalDuplicatesSkipped
+        duplicatesSkipped: totalDuplicatesSkipped
       }
     });
   } catch (error) {
