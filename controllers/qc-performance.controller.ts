@@ -50,7 +50,7 @@ export const getQCPerformanceByProject = async (req: Request, res: Response) => 
         qc.total_records_processed, qc.duplicates_found, qc.duplicates_removed, qc.unique_records,
         qc.important_columns, qc.processing_status, qc.qc_score, qc.qc_agent_id, qc.qc_notes,
         qc.created_at, qc.updated_at,
-        u.username as agent_name
+        u.user_name as agent_name
       FROM qc_performance qc
       LEFT JOIN tfs_user u ON qc.user_id = u.user_id
       WHERE qc.project_id = ? 
@@ -248,7 +248,7 @@ export const getAllQCPerformance = async (req: Request, res: Response) => {
         qp.total_records_processed, qp.duplicates_found, qp.duplicates_removed, qp.unique_records,
         qp.important_columns, qp.processing_status, qp.qc_score, qp.qc_agent_id, qp.qc_notes,
         qp.created_at, qp.updated_at,
-        u.username as agent_name,
+        u.user_name as agent_name,
         t.task_name,
         p.project_name
       FROM qc_performance qp
