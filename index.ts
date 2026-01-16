@@ -4,6 +4,7 @@ import cors from "cors";
 import userRoutes from "./routes/user.routes";
 import trackerRoutes from "./routes/tracker.routes";
 import qcPerformanceRoutes from "./routes/qc-performance.routes";
+import qcEvaluationRoutes from "./routes/qc-evaluation.routes";
 
 const app = express();
 app.use(express.json());
@@ -25,7 +26,7 @@ app.get("/api/v1/health", (req: Request, res: Response) => {
 app.use("/api/v1", userRoutes);
 app.use("/api/v1", trackerRoutes);
 app.use("/api/v1", qcPerformanceRoutes);
-
+app.use("/api/v1", qcEvaluationRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
