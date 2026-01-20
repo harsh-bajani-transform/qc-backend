@@ -3,6 +3,8 @@ import get_db_connection from '../database/db';
 import crypto from 'crypto';
 import userQueries from '../queries/user-queries';
 import qcQueries from '../queries/qc-queries';
+import AIService from '../config/ai';
+import { sampleRecords } from '../utils/qc-helpers';
 
 // Get all files available for QC evaluation
 export const getQCFilesForEvaluation = async (req: Request, res: Response) => {
@@ -100,7 +102,7 @@ export const getQCFilesForEvaluation = async (req: Request, res: Response) => {
             user_id: user.user_id,
             user_name: user.user_name,
             designation: user.designation_name,
-            role_id: user.designation_id
+            role_id: user.role_id
           },
           access_control: {
             accessible_roles: accessibleRoles,
@@ -181,6 +183,9 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
 
       const file = qcFile[0];
 
+      // Parse important columns
+      const importantColumns = file.important_columns ? JSON.parse(file.important_columns) : [];
+
       // Get total records in tracker_records for this file/project
       const [recordStats] = await connection.execute(
         `SELECT 
@@ -195,12 +200,6 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
         [file.project_id, file.user_id] // We need to get the original user_id from qc_performance
       ) as [any[], any];
 
-      // Get the original user_id from qc_performance
-      const [originalUser] = await connection.execute(
-        'SELECT user_id FROM qc_performance WHERE id = ?',
-        [qc_id]
-      ) as [any[], any];
-
       const stats = recordStats[0] || {
         total_records: 0,
         ready_records: 0,
@@ -209,16 +208,7 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
         last_record_date: null
       };
 
-      // Parse important columns
-      const importantColumns = file.important_columns ? JSON.parse(file.important_columns) : [];
-
-      // Get evaluation criteria (dummy for now)
-      const evaluationCriteria = getDummyCriteria(file.project_id);
-
-      // Calculate sample size (10% of records)
-      const sampleSize = Math.max(1, Math.ceil(stats.total_records * 0.1));
-
-      console.log(`File details retrieved: ${file.file_name}, Total records: ${stats.total_records}, Sample size: ${sampleSize}`);
+      console.log(`File details retrieved: ${file.file_name}, Total records: ${stats.total_records}`);
 
       res.status(200).json({
         success: true,
@@ -228,7 +218,7 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
             user_id: user.user_id,
             user_name: user.user_name,
             designation: user.designation_name,
-            role_id: user.designation_id
+            role_id: user.role_id
           },
           file_details: {
             qc_id: file.qc_id,
@@ -271,9 +261,6 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
             evaluated_at: file.updated_at
           },
           evaluation_setup: {
-            evaluation_criteria: evaluationCriteria,
-            sampling_percentage: 10,
-            sample_size: sampleSize,
             ready_for_evaluation: file.qc_score === null && stats.total_records > 0
           },
           access_control: {
@@ -307,6 +294,33 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'user_id and project_id are required'
+      });
+    }
+
+    const evaluationCriteriaRaw = (req.body as any).evaluation_criteria ?? (req.body as any).criteria;
+    if (!evaluationCriteriaRaw) {
+      return res.status(400).json({
+        success: false,
+        message: 'evaluation_criteria (or criteria) is required'
+      });
+    }
+
+    let evaluationCriteria: any;
+    try {
+      evaluationCriteria = typeof evaluationCriteriaRaw === 'string'
+        ? JSON.parse(evaluationCriteriaRaw)
+        : evaluationCriteriaRaw;
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: 'evaluation_criteria is not valid JSON'
+      });
+    }
+
+    if (!Array.isArray(evaluationCriteria) || evaluationCriteria.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'evaluation_criteria must be a non-empty array'
       });
     }
 
@@ -362,9 +376,8 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
             },
             project_id: project_id,
             total_records: 0,
-            sampled_records: [],
-            evaluation_criteria: getDummyCriteria(project_id),
-            sampling_percentage: 10,
+            records: [],
+            evaluation_criteria: evaluationCriteria,
             access_control: {
               message: `Only accessing records from users with role_id < ${user.role_id}`
             }
@@ -372,17 +385,15 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
         });
       }
 
-      // Calculate 10% sample size
       const totalRecords = trackerRecords.length;
-      const sampleSize = Math.max(1, Math.ceil(totalRecords * 0.1)); // At least 1 record
-      
+      const sampleSize = Math.max(1, Math.ceil(totalRecords * 0.1)); // 10% sample
       console.log(`Total records: ${totalRecords}, Sample size: ${sampleSize} (10%)`);
 
       // Sample records using systematic random sampling
       const sampledRecords = sampleRecords(trackerRecords, sampleSize);
 
-      // Parse record data and prepare for evaluation
-      const evaluationData = sampledRecords.map(record => ({
+      // Parse record data and prepare for evaluation (SAMPLED records only)
+      const evaluationData = sampledRecords.map((record: any) => ({
         record_id: record.id,
         hash_value: record.hash_value,
         created_at: record.created_at,
@@ -395,10 +406,79 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
         criteria_results: {} // Will store criteria-specific results
       }));
 
-      // Get project-specific criteria (dummy for now)
-      const evaluationCriteria = getDummyCriteria(project_id);
+      console.log(`Prepared ${evaluationData.length} sampled records for QC evaluation`);
 
-      console.log(`Prepared ${evaluationData.length} records for QC evaluation`);
+      // AI analysis on sampled records (optional, only if configured).
+      // IMPORTANT: Don't send too many records to the model (token limits). We'll cap it.
+      const AI_MAX_RECORDS = 20;
+      const AI_THRESHOLD = 95;
+      const aiInputRecords = evaluationData
+        .slice(0, AI_MAX_RECORDS)
+        .map((r: any) => ({ id: r.record_id, ...r.record_data }));
+
+      let ai_analysis: any = null;
+      let ai_feedback: any = null;
+      const ai = {
+        enabled: true,
+        configured: AIService.isConfigured(),
+        ran: false,
+        analyzed_records: aiInputRecords.length,
+        max_records_limit: AI_MAX_RECORDS,
+        threshold: AI_THRESHOLD,
+        overall_score: null as null | number,
+        feedback_generated: false,
+        reason: null as null | string,
+        feedback_reason: null as null | string,
+      };
+
+      if (!ai.configured) {
+        ai.reason = 'AI not configured (missing GOOGLE_GENERATIVE_AI_API_KEY)';
+      } else if (aiInputRecords.length === 0) {
+        ai.reason = 'No sampled records available for AI analysis';
+      } else {
+        try {
+          ai.ran = true;
+          const aiResults = await AIService.analyzeRecords(aiInputRecords, evaluationCriteria);
+          const scores = Array.isArray(aiResults)
+            ? aiResults.map((x: any) => Number(x?.score ?? 0)).filter((n: any) => Number.isFinite(n))
+            : [];
+          const overallScore = scores.length
+            ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length)
+            : 0;
+
+          ai.overall_score = overallScore;
+
+          ai_analysis = {
+            analyzed_records: aiInputRecords.length,
+            max_records_limit: AI_MAX_RECORDS,
+            overall_score: overallScore,
+            results: aiResults
+          };
+
+          if (overallScore > 0 && overallScore < AI_THRESHOLD) {
+            const recordsWithIssues = Array.isArray(aiResults)
+              ? aiResults.filter((x: any) => (x?.isCompliant === false) || Number(x?.score ?? 0) < 95).length
+              : 0;
+
+            ai_feedback = await AIService.generateEvaluationFeedback(
+              {
+                totalRecords: aiInputRecords.length,
+                recordsWithIssues,
+                issuesByRecord: aiResults,
+                overallScore
+              },
+              overallScore
+            );
+
+            ai.feedback_generated = true;
+          } else {
+            ai.feedback_reason = `Overall score is >= ${AI_THRESHOLD}, so no feedback required`;
+          }
+        } catch (e) {
+          console.error('AI analysis failed in getQCEvaluationData:', e);
+          ai.reason = 'AI analysis failed (see server logs for details)';
+        }
+      }
 
       res.status(200).json({
         success: true,
@@ -408,7 +488,7 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
             user_id: user.user_id,
             user_name: user.user_name,
             designation: user.designation_name,
-            role_id: user.designation_id
+            role_id: user.role_id
           },
           project_id: project_id,
           total_records: totalRecords,
@@ -416,9 +496,13 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
           evaluation_criteria: evaluationCriteria,
           sampling_percentage: 10,
           sample_size: sampleSize,
+          ai,
+          ai_analysis,
+          ai_feedback,
           access_control: {
             message: `Only accessing records from users with role_id < ${user.role_id}`,
-            accessible_records: `${totalRecords} records from lower-level users`
+            accessible_records: `${totalRecords} records from lower-level users`,
+            sampling_info: `Sampled ${sampleSize} records (${Math.round((sampleSize/totalRecords)*100)}%) for QC evaluation`
           }
         }
       });
@@ -502,6 +586,30 @@ export const submitQCEvaluation = async (req: Request, res: Response) => {
             result.record_id
           ]
         );
+
+        // Insert per-record evaluation result
+        const evaluationId = crypto.randomUUID();
+        await connection.execute(
+          `INSERT INTO qc_record_evaluations 
+           (id, record_id, project_id, qc_agent_id, qc_agent_name, qc_agent_role_id, 
+            evaluation_status, evaluation_score, evaluation_notes, criteria_results, 
+            ai_analysis, ai_feedback)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            evaluationId,
+            result.record_id,
+            project_id,
+            user_id,
+            qcAgent.user_name,
+            qcAgent.role_id,
+            result.evaluation_status || 'pending',
+            result.evaluation_score || 0,
+            result.evaluation_notes || overall_notes || '',
+            JSON.stringify(result.criteria_results || {}),
+            result.ai_analysis ? JSON.stringify(result.ai_analysis) : null,
+            result.ai_feedback ? JSON.stringify(result.ai_feedback) : null
+          ]
+        );
       }
 
       // Store evaluation summary (optional - for reporting)
@@ -524,6 +632,27 @@ export const submitQCEvaluation = async (req: Request, res: Response) => {
 
       console.log(`Evaluation completed: ${passedCount}/${totalEvaluated} passed (${passRate.toFixed(1)}%)`);
 
+      // Generate AI feedback for low scores
+      let aiFeedback = null;
+      if (passRate < 95) {
+        try {
+          const evaluationData = {
+            totalRecords: totalEvaluated,
+            recordsWithIssues: failedCount,
+            issuesByRecord: evaluation_results.filter((result: any) => result.evaluation_status === 'failed').map((result: any) => ({
+              recordId: result.record_id,
+              issues: result.issues || ['Evaluation failed'],
+              score: result.evaluation_score || 0
+            }))
+          };
+
+          aiFeedback = await AIService.generateEvaluationFeedback(evaluationData, passRate);
+          console.log('AI feedback generated for low score evaluation');
+        } catch (error) {
+          console.error('Error generating AI feedback:', error);
+        }
+      }
+
       res.status(200).json({
         success: true,
         message: 'QC evaluation submitted successfully',
@@ -538,7 +667,18 @@ export const submitQCEvaluation = async (req: Request, res: Response) => {
           qc_agent: {
             user_id: qcAgent.user_id,
             user_name: qcAgent.user_name
-          }
+          },
+          ai_feedback: aiFeedback,
+          recommendations: passRate < 95 ? {
+            priority: 'High',
+            action: 'Review AI feedback and address identified issues',
+            nextSteps: [
+              'Analyze specific issues highlighted by AI',
+              'Fix data quality problems identified',
+              'Implement suggested improvements',
+              'Resubmit for re-evaluation'
+            ]
+          } : null
         }
       });
 
@@ -555,70 +695,3 @@ export const submitQCEvaluation = async (req: Request, res: Response) => {
     });
   }
 };
-
-// Helper function to sample records systematically
-function sampleRecords(records: any[], sampleSize: number): any[] {
-  if (records.length <= sampleSize) {
-    return records;
-  }
-
-  const sampled: any[] = [];
-  const step = Math.floor(records.length / sampleSize);
-  const startIndex = Math.floor(Math.random() * step); // Random start within first step
-
-  for (let i = 0; i < sampleSize && startIndex + (i * step) < records.length; i++) {
-    sampled.push(records[startIndex + (i * step)]);
-  }
-
-  // If we didn't get enough samples, add random ones
-  while (sampled.length < sampleSize && sampled.length < records.length) {
-    const randomIndex = Math.floor(Math.random() * records.length);
-    if (!sampled.includes(records[randomIndex])) {
-      sampled.push(records[randomIndex]);
-    }
-  }
-
-  return sampled;
-}
-
-// Helper function to get dummy criteria (will be replaced with dynamic criteria)
-function getDummyCriteria(project_id: number): any[] {
-  // Dummy criteria - will be replaced with project-specific criteria from frontend
-  return [
-    {
-      id: 'typo_check',
-      name: 'Typo Check',
-      description: 'Check for typographical errors in text fields',
-      weight: 25,
-      required: true
-    },
-    {
-      id: 'spelling_check',
-      name: 'Spelling Check',
-      description: 'Verify spelling accuracy in all text fields',
-      weight: 25,
-      required: true
-    },
-    {
-      id: 'format_check',
-      name: 'Format Validation',
-      description: 'Ensure data follows specified format requirements',
-      weight: 20,
-      required: true
-    },
-    {
-      id: 'completeness_check',
-      name: 'Completeness Check',
-      description: 'Verify all required fields are filled',
-      weight: 20,
-      required: true
-    },
-    {
-      id: 'accuracy_check',
-      name: 'Data Accuracy',
-      description: 'Cross-reference data accuracy against source',
-      weight: 10,
-      required: false
-    }
-  ];
-}
