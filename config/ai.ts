@@ -91,7 +91,7 @@ export const QC_PROMPTS = {
     You are a QC evaluation expert.
     Return ONLY valid JSON. Do not include markdown, code fences, or extra text.
 
-    Goal: Provide actionable feedback for the user so they can fix the records.
+    Goal: Provide actionable feedback for user so they can fix the records.
     You MUST mention which criteria were not followed and in which recordId those issues occurred.
     
     EVALUATION SUMMARY:
@@ -126,6 +126,52 @@ export const QC_PROMPTS = {
       ],
       "recommendations": ["<string>"],
       "improvementTips": ["<string>"]
+    }
+  `,
+
+  // Generate AFD-based feedback for category-specific errors
+  generateAFDFeedback: (errorAnalysis: any) => `
+    You are a QC evaluation expert specializing in AFD (Area For Defects) analysis.
+    Return ONLY valid JSON. Do not include markdown, code fences, or extra text.
+
+    Goal: Provide detailed feedback based on AFD category-specific errors found during QC evaluation.
+    Focus on which categories/subcategories had the most issues and provide actionable recommendations.
+    
+    EVALUATION ANALYSIS:
+    Overall Score: ${errorAnalysis.overallScore}%
+    Total Records Evaluated: ${errorAnalysis.totalRecords}
+    Is Rejected: ${errorAnalysis.isRejected}
+    
+    ERRORS BY SUBCATEGORY:
+    ${JSON.stringify(errorAnalysis.errorsBySubcategory, null, 2)}
+    
+    FATAL ERRORS:
+    ${JSON.stringify(errorAnalysis.fatalErrors, null, 2)}
+    
+    Output JSON schema (strict):
+    {
+      "summary": "<string>",
+      "overallScore": <number 0-100>,
+      "isRejected": <boolean>,
+      "categoryAnalysis": [
+        {
+          "subcategory_name": "<string>",
+          "error_count": <number>,
+          "is_fatal_error": <boolean>,
+          "impact": "<string>",
+          "recommendations": ["<string>"]
+        }
+      ],
+      "priorityIssues": [
+        {
+          "subcategory": "<string>",
+          "severity": "high|medium|low",
+          "affected_records": <number>,
+          "action_required": "<string>"
+        }
+      ],
+      "improvementSuggestions": ["<string>"],
+      "nextSteps": ["<string>"]
     }
   `
 };
@@ -204,6 +250,22 @@ export class AIService {
     } catch (error) {
       console.error('Error generating AI feedback:', error);
       throw new Error('Failed to generate AI feedback');
+    }
+  }
+
+  // Generate AFD-based feedback for category-specific errors
+  static async generateAFDEvaluationFeedback(errorAnalysis: any) {
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        prompt: QC_PROMPTS.generateAFDFeedback(errorAnalysis),
+        ...AI_CONFIG.defaultOptions,
+      });
+
+      return this.parseJson(text);
+    } catch (error) {
+      console.error('Error generating AFD AI feedback:', error);
+      throw new Error('Failed to generate AFD AI feedback');
     }
   }
 

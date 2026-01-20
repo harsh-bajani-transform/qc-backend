@@ -5,6 +5,9 @@ import userRoutes from "./routes/user.routes";
 import trackerRoutes from "./routes/tracker.routes";
 import qcPerformanceRoutes from "./routes/qc-performance.routes";
 import qcEvaluationRoutes from "./routes/qc-evaluation.routes";
+import categoryRoutes from "./routes/category.routes";
+import qcScoringRoutes from "./routes/qc-scoring.routes";
+import qcEvaluationUpdatedRoutes from "./routes/qc-evaluation-updated.routes";
 
 const app = express();
 app.use(express.json());
@@ -27,6 +30,9 @@ app.use("/api/v1", userRoutes);
 app.use("/api/v1", trackerRoutes);
 app.use("/api/v1", qcPerformanceRoutes);
 app.use("/api/v1", qcEvaluationRoutes);
+app.use("/api/v1", categoryRoutes);
+app.use("/api/v1", qcScoringRoutes);
+app.use("/api/v1", qcEvaluationUpdatedRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
