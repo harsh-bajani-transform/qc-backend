@@ -51,10 +51,22 @@ export const getTrackerData = async (req: Request, res: Response) => {
         
         if (taskRows.length > 0) {
           const task = taskRows[0];
+          let importantColumns: any[] = [];
+          if (task.important_columns) {
+            try {
+              importantColumns = JSON.parse(task.important_columns);
+            } catch (parseError) {
+              console.error(
+                `Error parsing important_columns for task ${task.task_id}:`,
+                parseError
+              );
+              importantColumns = [];
+            }
+          }
           tracker.task_info = {
             task_id: task.task_id,
             task_name: task.task_name,
-            important_columns: task.important_columns ? JSON.parse(task.important_columns) : []
+            important_columns: importantColumns
           };
         } else {
           tracker.task_info = {
