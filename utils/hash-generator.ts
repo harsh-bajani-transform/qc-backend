@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import crypto from 'crypto';
 import { get_db_connection } from '../database/db';
 
 interface TaskInfo {
@@ -32,9 +33,18 @@ export class HashGenerator {
       }
       
       const task = tasks[0];
+      let importantColumns: string[];
+      try {
+        importantColumns = JSON.parse(task.important_columns || '[]');
+      } catch (parseError) {
+        throw new Error(
+          `Failed to parse important_columns JSON for task_id ${task.task_id}. ` +
+          `Value: ${String(task.important_columns)}. Error: ${(parseError as Error).message}` 
+        );
+      }
       return {
         task_id: task.task_id,
-        important_columns: JSON.parse(task.important_columns || '[]')
+        important_columns: importantColumns
       };
     } catch (error) {
       console.error('Error fetching task info:', error);
@@ -53,13 +63,13 @@ export class HashGenerator {
     // Check header row (first row) for column name
     const headerRow = worksheet.getRow(1);
     
-    for (let colNumber = 1; colNumber <= headerRow.cellCount; colNumber++) {
-      const cell = headerRow.getCell(colNumber);
+    for (let columnIndex = 1; columnIndex <= headerRow.cellCount; columnIndex++) {
+      const cell = headerRow.getCell(columnIndex);
       const cellValue = String(cell.value || '').trim().toLowerCase();
       const targetColumn = String(columnName).trim().toLowerCase();
       
       if (cellValue === targetColumn) {
-        return colNumber;
+        return columnIndex;
       }
     }
     
@@ -141,20 +151,10 @@ export class HashGenerator {
   }
 
   /**
-   * Generate hash string using a simple algorithm
+   * Generate cryptographic hash string using SHA-256
    */
   private static generateStringHash(input: string): string {
-    // Simple hash function - you can replace with crypto if needed
-    let hash = 0;
-    if (input.length === 0) return hash.toString();
-    
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    
-    return Math.abs(hash).toString();
+    return crypto.createHash('sha256').update(input).digest('hex');
   }
 
   /**
