@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs';
 import crypto from 'crypto';
 import get_db_connection from '../database/db';
 import { PYTHON_URL } from '../config/env';
+import { PathResolver } from '../utils/path-resolver';
 
 export const processExcelFiles = async (req: Request, res: Response) => {
   try {
@@ -16,9 +17,15 @@ export const processExcelFiles = async (req: Request, res: Response) => {
       });
     }
 
+    // Fix the request body to match Python backend expectations
+    const pythonRequestBody = {
+      ...req.body,
+      logged_in_user_id: req.body.user_id || req.body.logged_in_user_id
+    };
+
     // Fetch data from Python backend
     const url = `${PYTHON_URL}/tracker/view`.replace(/\/+/g, '/');
-    const response = await axios.post(url, req.body);
+    const response = await axios.post(url, pythonRequestBody);
     
     if (response.status !== 200) {
       return res.status(500).json({
@@ -34,9 +41,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
     
     // Filter to only include files that actually exist
     const existingFiles = trackersWithFiles.filter((tracker: any) => {
-      const exists = fs.existsSync(tracker.tracker_file);
+      const resolvedFilePath = PathResolver.resolveFilePath(tracker.tracker_file);
+      const exists = fs.existsSync(resolvedFilePath);
       if (!exists) {
         console.log(`Skipping tracker ${tracker.tracker_id} - file not found: ${tracker.tracker_file}`);
+        console.log(`Resolved path: ${resolvedFilePath}`);
+        PathResolver.debugFilePath(tracker.tracker_file);
       }
       return exists;
     });
@@ -66,8 +76,11 @@ export const processExcelFiles = async (req: Request, res: Response) => {
     // Process files in parallel for better performance
     const fileProcessingPromises = existingFiles.map(async (tracker: any) => {
       const filePath = tracker.tracker_file;
+      const resolvedFilePath = PathResolver.resolveFilePath(filePath);
+      
       console.log(`\n=== Processing Tracker ID: ${tracker.tracker_id} ===`);
-      console.log(`File path: ${filePath}`);
+      console.log(`Original file path: ${filePath}`);
+      console.log(`Resolved file path: ${resolvedFilePath}`);
       console.log(`Task ID: ${tracker.task_id}, Project ID: ${tracker.project_id}, User ID: ${tracker.user_id}`);
       
       // Initialize QC performance tracking for this tracker
@@ -98,10 +111,10 @@ export const processExcelFiles = async (req: Request, res: Response) => {
         console.log(`Task: ${task.task_name}`);
         console.log(`Important columns: ${importantColumns.join(', ')}`);
         
-        const stats = fs.statSync(filePath);
+        const stats = fs.statSync(resolvedFilePath);
         console.log(`File size: ${stats.size} bytes`);
         
-        const ext = path.extname(filePath).toLowerCase();
+        const ext = path.extname(resolvedFilePath).toLowerCase();
         console.log(`File extension detected: ${ext}`);
         
         if (ext === '.xlsx' || ext === '.xls') {
@@ -110,13 +123,13 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           // Check if QC record already exists for this file
           const [existingQC] = await connection.execute(
             'SELECT id, processing_status FROM qc_performance WHERE file_name = ?',
-            [path.basename(filePath)]
+            [path.basename(resolvedFilePath)]
           ) as [any[], any];
           
           let isAlreadyProcessed = false;
           
           if (existingQC.length > 0) {
-            console.log(`QC record already exists for file: ${filePath} (ID: ${existingQC[0].id})`);
+            console.log(`QC record already exists for file: ${resolvedFilePath} (ID: ${existingQC[0].id})`);
             qcPerformanceId = existingQC[0].id;
             
             // Check if file was already successfully processed
@@ -138,7 +151,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   tracker.project_id,
                   tracker.task_id,
                   tracker.tracker_id,
-                  path.basename(filePath),
+                  path.basename(resolvedFilePath),
                   JSON.stringify(importantColumns),
                   'processing'
                 ]
@@ -156,7 +169,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
             
             try {
               const workbook = new ExcelJS.Workbook();
-              await workbook.xlsx.readFile(filePath);
+              await workbook.xlsx.readFile(resolvedFilePath);
               
               console.log(`Excel workbook loaded, worksheets: ${workbook.worksheets.length}`);
               
@@ -322,7 +335,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
             }
           } else {
-            console.log(`Skipping file processing - already completed: ${filePath}`);
+            console.log(`Skipping file processing - already completed: ${resolvedFilePath}`);
             return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
           }
         } else {
