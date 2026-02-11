@@ -22,7 +22,9 @@
     "@ai-sdk/google": "^3.0.10",
     "@eslint/js": "^9.39.2",
     "@types/cors": "^2.8.19",
+    "@types/multer": "^2.0.0",
     "@types/nodemailer": "^7.0.4",
+    "@types/xlsx": "^0.0.35",
     "ai": "^6.0.38",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
@@ -34,8 +36,10 @@
     "exceljs": "^4.4.0",
     "fast-csv": "^5.0.5",
     "lodash": "^4.17.21",
+    "multer": "^2.0.2",
     "mysql2": "^3.16.0",
     "nodemailer": "^7.0.12",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.5"
   }
 }
