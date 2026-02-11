@@ -1,51 +1,87 @@
 // AI Evaluation utility functions
 import crypto from 'crypto';
 
+function normalizeKey(value: string) {
+  return String(value ?? '').toLowerCase().trim();
+}
+
+function normalizeCellValue(value: any) {
+  if (value === null || value === undefined) return '';
+  return String(value).toLowerCase().trim();
+}
+
+export function parseImportantColumns(rawImportantColumns: any, fallbackHeaders: string[]) {
+  if (Array.isArray(rawImportantColumns)) return rawImportantColumns.map((c) => String(c).trim()).filter(Boolean);
+  if (typeof rawImportantColumns !== 'string') return fallbackHeaders;
+
+  const text = rawImportantColumns.trim();
+  if (!text) return fallbackHeaders;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed.map((c) => String(c).trim()).filter(Boolean);
+  } catch {
+    // ignore
+  }
+
+  return text.split(',').map((c) => c.trim()).filter(Boolean);
+}
+
 // Generate concise AI prompt for focused analysis
 export function generateAIPrompt(data: any[], importantColumns: string) {
-  const sampleData = data.slice(0, 3); // Only first 3 rows for context
+  const totalRecords = data.length;
   
   return `
-You are a QC expert. Analyze this Excel data and provide a concise, actionable report.
+You are a QC expert performing comprehensive data quality analysis on a QC dataset.
 
 IMPORTANT COLUMNS: ${importantColumns}
 
-SAMPLE DATA (first 3 rows):
-${JSON.stringify(sampleData, null, 2)}
+COMPLETE DATASET (${totalRecords} records):
+${JSON.stringify(data, null, 2)}
 
-TOTAL RECORDS: ${data.length}
+TOTAL RECORDS: ${totalRecords}
 
-ANALYSIS FOCUS:
+CRITICAL QC ANALYSIS FOCUS:
 1. Data completeness (missing values in important columns)
-2. Data accuracy (format validation)
-3. Data consistency (standardization issues)
-4. Business rule violations
-5. Duplicate records
+2. Data accuracy (format validation, email formats, phone numbers, etc.)
+3. Data consistency (standardization issues, case sensitivity)
+4. Business rule violations (specific to QC requirements)
+5. Duplicate records (exact and near-duplicates)
+6. Outlier detection (unusual values that may indicate errors)
+
+QC REQUIREMENTS:
+- EVERY record must be analyzed - no exceptions
+- Identify ALL issues regardless of how small
+- Provide exact counts of problematic records
+- Flag any data that could impact QC processes
+- Ensure 100% data integrity for compliance
 
 RESPONSE FORMAT (JSON):
 {
   "qualityScore": number (0-100),
   "totalRecords": number,
   "validRecords": number,
-  "issuesFound": number,
-  "summary": "Brief summary (max 2 sentences)",
+  "issuesFound": number (exact count of problematic records),
+  "summary": "Brief summary of QC findings (max 2 sentences)",
   "criticalIssues": [
     {
       "issue": "Specific problem description",
-      "location": "Where it appeared (column/row range)",
-      "impact": "Why it happened",
-      "fix": "How to fix it"
+      "location": "Exact location (column/row numbers)",
+      "impact": "Why this matters for QC",
+      "fix": "How to resolve this issue",
+      "affectedRecords": number (exact count of records with this issue)
     }
   ],
-  "suggestions": ["Actionable improvement suggestions (max 3)"]
+  "suggestions": ["Actionable QC improvement suggestions (max 3)"]
 }
 
-IMPORTANT:
-- Be specific about WHERE issues appeared
-- Explain WHY they happened 
-- Keep summary under 2 sentences
-- Focus on most critical issues only
-- Provide actionable fixes
+QC ANALYSIS REQUIREMENTS:
+- Analyze EVERY record in the dataset
+- Provide EXACT counts, not estimates
+- Be thorough and meticulous - QC requires 100% accuracy
+- Count actual records affected, not just issue types
+- Ensure validRecords + issuesFound = totalRecords
+- Prioritize issues that could affect QC outcomes
 `;
 }
 
@@ -53,14 +89,52 @@ IMPORTANT:
 export function parseAIResponse(aiResponse: string, totalRecords: number) {
   try {
     const parsed = JSON.parse(aiResponse);
+    
+    // Debug: Log the AI response to understand its structure
+    console.log('AI Response structure:', JSON.stringify(parsed, null, 2));
+    
+    // Calculate valid records based on actual problematic records count
+    let problematicRecordsCount = 0;
+    
+    if (parsed.criticalIssues && parsed.criticalIssues.length > 0) {
+      // Count actual problematic records from criticalIssues
+      problematicRecordsCount = parsed.criticalIssues.reduce((count: number, issue: any) => {
+        // If issue specifies affected records, use that
+        if (issue.affectedRecords) {
+          return count + issue.affectedRecords;
+        }
+        // If issue specifies rows/records in the description, try to extract it
+        if (issue.issue && issue.issue.match(/(\d+)\s+records?/)) {
+          const matches = issue.issue.match(/(\d+)\s+records?/);
+          return count + parseInt(matches[1]);
+        }
+        // If issue mentions specific rows, count them
+        if (issue.location && issue.location.match(/rows?\s+(\d+)/)) {
+          const matches = issue.location.match(/rows?\s+(\d+)/);
+          return count + parseInt(matches[1]);
+        }
+        // Default to 1 record per issue
+        return count + 1;
+      }, 0);
+    } else if (parsed.issuesFound !== undefined) {
+      // Use issuesFound if no criticalIssues
+      problematicRecordsCount = parsed.issuesFound;
+    }
+    
+    // Ensure we don't have more problematic records than total records
+    problematicRecordsCount = Math.min(problematicRecordsCount, totalRecords);
+    const validRecords = Math.max(0, totalRecords - problematicRecordsCount);
+    
+    console.log('Calculated:', { totalRecords, problematicRecordsCount, validRecords });
+    
     return {
       status: 'success',
       message: 'AI Evaluation Complete',
       qualityScore: parsed.qualityScore || 0,
       details: {
         totalRecords: totalRecords,
-        validRecords: parsed.validRecords || 0,
-        issuesFound: parsed.issuesFound || 0
+        validRecords: validRecords,
+        issuesFound: problematicRecordsCount
       },
       summary: parsed.summary || 'AI analysis completed',
       suggestions: parsed.suggestions || [],
@@ -84,38 +158,66 @@ export function parseAIResponse(aiResponse: string, totalRecords: number) {
   }
 }
 
-// Generate hashes for records
-export function generateHashes(data: any[], columns: string[]) {
+// Generate hashes for records (aligned with tracker-process)
+export function generateHashes(data: any[], importantColumns: string[]) {
   return data.map((record, index) => {
-    const hashData = columns.map(col => record[col] || '').join('|');
+    const recordKeys = Object.keys(record || {});
+    const keyMap = new Map<string, string>();
+    recordKeys.forEach((k) => keyMap.set(normalizeKey(k), k));
+
+    const colsToUse = importantColumns.length > 0 ? importantColumns : recordKeys;
+    const hashInput = colsToUse
+      .map((col) => {
+        const originalKey = keyMap.get(normalizeKey(col));
+        return originalKey ? normalizeCellValue((record as any)[originalKey]) : '';
+      })
+      .join('|')
+      .trim();
+
     return {
-      row: index + 2, // Excel rows start from 1, plus header row
-      hash: crypto.createHash('md5').update(hashData).digest('hex')
+      row: index + 2,
+      hash: crypto.createHash('sha256').update(hashInput).digest('hex'),
     };
   });
 }
 
 // Get existing hashes from database
-export async function getExistingHashes(connection: any, projectId: number) {
+export async function getExistingHashes(connection: any, projectId: number, taskId: number) {
   const [existingRecords] = await connection.execute(
-    'SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ?',
-    [projectId]
+    'SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ?',
+    [projectId, taskId]
   ) as [any[], any];
 
   return existingRecords.map((record: any) => record.hash_value);
 }
 
 // Find duplicates between current and existing hashes
-export function findDuplicates(currentHashes: any[], existingHashes: string[], originalData: any[]) {
+export function findDuplicates(currentHashes: any[], existingHashes: string[], originalData: any[], importantColumns: string[]) {
   const existingHashSet = new Set<string>(existingHashes);
   const duplicates: any[] = [];
 
   currentHashes.forEach((item, index) => {
     if (existingHashSet.has(item.hash)) {
+      const rowData = originalData[index];
+      
+      // Extract the important column values that caused this duplicate
+      const duplicateFields: any = {};
+      importantColumns.forEach(col => {
+        // Find matching header (case-insensitive)
+        const matchingKey = Object.keys(rowData).find(key => 
+          key.toLowerCase().trim() === col.toLowerCase().trim()
+        );
+        if (matchingKey) {
+          duplicateFields[col] = rowData[matchingKey];
+        }
+      });
+
       duplicates.push({
         row: item.row,
         hash: item.hash,
-        data: originalData[index]
+        data: rowData,
+        duplicateColumns: importantColumns,
+        duplicateValues: duplicateFields
       });
     }
   });

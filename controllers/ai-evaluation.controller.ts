@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import get_db_connection from '../database/db';
 import userQueries from '../queries/user-queries';
-import { generateAIPrompt, parseAIResponse, generateHashes, getExistingHashes, findDuplicates } from '../utils/ai-evaluation-utils';
-import { getAIServiceQueue } from '../utils/ai-service-queue';
+import AIService from '../config/ai';
+import { findDuplicates, generateAIPrompt, generateHashes, getExistingHashes, parseAIResponse, parseImportantColumns } from '../utils/ai-evaluation-utils';
 import multer, { FileFilterCallback } from 'multer';
 import xlsx from 'xlsx';
-import { SCALING_CONFIG } from '../config/scaling-config';
+import crypto from 'crypto';
 
 // Extend Request interface to include file
 interface AuthenticatedRequest extends Request {
@@ -23,6 +23,7 @@ const upload = multer({
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel'
     ];
+    
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -46,6 +47,10 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
       const file = req.file;
       const { user_id, project_id, task_id } = req.body;
 
+      const userId = Number(user_id);
+      const projectId = Number(project_id);
+      const taskId = Number(task_id);
+
       if (!file) {
         return res.status(400).json({
           success: false,
@@ -53,7 +58,7 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
         });
       }
 
-      if (!user_id || !project_id || !task_id) {
+      if (!userId || !projectId || !taskId) {
         return res.status(400).json({
           success: false,
           message: 'user_id, project_id, and task_id are required'
@@ -64,7 +69,7 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
 
       try {
         // Verify user is QC agent or higher
-        const user = await userQueries.getUserWithDesignation(user_id);
+        const user = await userQueries.getUserWithDesignation(userId);
         
         if (!user || user.designation_id < 1) {
           return res.status(403).json({
@@ -76,7 +81,7 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
         // Get project details to determine project category (for future use if needed)
         const [projectDetails] = await connection.execute(
           'SELECT project_category_id FROM project WHERE project_id = ?',
-          [project_id]
+          [projectId]
         ) as [any[], any];
 
         if (projectDetails.length === 0) {
@@ -111,15 +116,14 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
         // Get task details for important columns
         const [taskDetails] = await connection.execute(
           'SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?',
-          [task_id, project_id]
+          [taskId, projectId]
         ) as [any[], any];
 
         // Prepare AI prompt with default criteria and data
         const aiPrompt = generateAIPrompt(jsonData, taskDetails[0]?.important_columns || '');
         
         // Call AI service through queue for rate limiting
-        const aiQueue = getAIServiceQueue();
-        const aiResponse = await aiQueue.evaluateData(aiPrompt);
+        const aiResponse = await AIService.evaluateData(aiPrompt);
         
         // Parse AI response and format results
         const evaluationResult = parseAIResponse(aiResponse, jsonData.length);
@@ -157,6 +161,10 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
       const file = req.file;
       const { user_id, project_id, task_id } = req.body;
 
+      const userId = Number(user_id);
+      const projectId = Number(project_id);
+      const taskId = Number(task_id);
+
       if (!file) {
         return res.status(400).json({
           success: false,
@@ -164,7 +172,7 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
         });
       }
 
-      if (!user_id || !project_id || !task_id) {
+      if (!userId || !projectId || !taskId) {
         return res.status(400).json({
           success: false,
           message: 'user_id, project_id, and task_id are required'
@@ -175,7 +183,7 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
 
       try {
         // Verify user is QC agent or higher
-        const user = await userQueries.getUserWithDesignation(user_id);
+        const user = await userQueries.getUserWithDesignation(userId);
         
         if (!user || user.designation_id < 1) {
           return res.status(403).json({
@@ -187,7 +195,7 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
         // Get task details to understand important columns
         const [taskDetails] = await connection.execute(
           'SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?',
-          [task_id, project_id]
+          [taskId, projectId]
         ) as [any[], any];
 
         if (taskDetails.length === 0) {
@@ -219,19 +227,17 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
           });
         }
 
-        // Get important columns for hash generation
-        const importantColumns = taskDetails[0].important_columns 
-          ? taskDetails[0].important_columns.split(',').map((col: string) => col.trim())
-          : (jsonData[0] && typeof jsonData[0] === 'object' ? Object.keys(jsonData[0]) : []);
+        const fallbackHeaders = (jsonData[0] && typeof jsonData[0] === 'object') ? Object.keys(jsonData[0] as any) : [];
+        const importantColumns = parseImportantColumns(taskDetails[0].important_columns, fallbackHeaders);
 
         // Generate hashes for current file records
         const currentHashes = generateHashes(jsonData, importantColumns);
         
         // Get existing hashes from tracker_records table
-        const existingHashes = await getExistingHashes(connection, project_id);
+        const existingHashes = await getExistingHashes(connection, projectId, taskId);
         
         // Find duplicates
-        const duplicates = findDuplicates(currentHashes, existingHashes, jsonData);
+        const duplicates = findDuplicates(currentHashes, existingHashes, jsonData, importantColumns);
         
         res.status(200).json({
           success: true,
