@@ -10,7 +10,7 @@ export const AI_CONFIG = {
   defaultOptions: {
     temperature: 0.3, // Lower temperature for consistent analysis
     maxTokens: 1500, // Reasonable limit for detailed feedback
-    timeout: 60000, // 60 seconds timeout for Vercel/serverless environments
+    timeout: 100000, // 60 seconds timeout for Vercel/serverless environments
   }
 };
 
