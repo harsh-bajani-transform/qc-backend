@@ -10,6 +10,7 @@ export const AI_CONFIG = {
   defaultOptions: {
     temperature: 0.3, // Lower temperature for consistent analysis
     maxTokens: 1500, // Reasonable limit for detailed feedback
+    timeout: 60000, // 60 seconds timeout for Vercel/serverless environments
   }
 };
 
@@ -54,12 +55,12 @@ export const QC_PROMPTS = {
     You are a QC evaluation AI assistant.
     Return ONLY valid JSON. Do not include markdown, code fences, or extra text.
 
-    Goal: For each record, check whether it follows the QC evaluation criteria.
+    Goal: For each record, check whether it follows QC evaluation criteria.
     If it fails, specify exactly which criteria failed and why, and point to the field(s) involved.
     
     RECORDS:
     ${records.map((record, index) => `Record ${index + 1}:
-    ${JSON.stringify(record, null, 2)}`).join(',\n    ')}
+    ${JSON.stringify(record, null, 2)}`).join('\n    ')}
     
     EVALUATION CRITERIA:
     ${JSON.stringify(criteria, null, 2)}
