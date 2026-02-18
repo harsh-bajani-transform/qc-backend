@@ -1,11 +1,18 @@
-import { Request, Response } from 'express';
-import get_db_connection from '../database/db';
-import userQueries from '../queries/user-queries';
-import AIService from '../config/ai';
-import { findDuplicates, generateAIPrompt, generateHashes, getExistingHashes, parseAIResponse, parseImportantColumns } from '../utils/ai-evaluation-utils';
-import multer, { FileFilterCallback } from 'multer';
-import xlsx from 'xlsx';
-import crypto from 'crypto';
+import { Request, Response } from "express";
+import get_db_connection from "../database/db";
+import userQueries from "../queries/user-queries";
+import AIService from "../config/ai";
+import {
+  findDuplicates,
+  generateAIPrompt,
+  generateHashes,
+  getExistingHashes,
+  parseAIResponse,
+  parseImportantColumns,
+} from "../utils/ai-evaluation-utils";
+import multer, { FileFilterCallback } from "multer";
+import xlsx from "xlsx";
+import crypto from "crypto";
 
 // Extend Request interface to include file
 interface AuthenticatedRequest extends Request {
@@ -18,29 +25,36 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
-  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  fileFilter: (
+    req: Request,
+    file: Express.Multer.File,
+    cb: FileFilterCallback,
+  ) => {
     const allowedTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel'
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
     ];
-    
+
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only Excel files are allowed'));
+      cb(new Error("Only Excel files are allowed"));
     }
-  }
+  },
 });
 
 // AI evaluation of Excel file
-export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response) => {
+export const evaluateExcelFile = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
   try {
     // Use multer middleware to handle file upload
-    upload.single('file')(req, res, async (err: any) => {
+    upload.single("file")(req, res, async (err: any) => {
       if (err) {
         return res.status(400).json({
           success: false,
-          message: err.message
+          message: err.message,
         });
       }
 
@@ -54,14 +68,14 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
       if (!file) {
         return res.status(400).json({
           success: false,
-          message: 'No file uploaded'
+          message: "No file uploaded",
         });
       }
 
       if (!userId || !projectId || !taskId) {
         return res.status(400).json({
           success: false,
-          message: 'user_id, project_id, and task_id are required'
+          message: "user_id, project_id, and task_id are required",
         });
       }
 
@@ -70,35 +84,22 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
       try {
         // Verify user is QC agent or higher
         const user = await userQueries.getUserWithDesignation(userId);
-        
+
         if (!user || user.designation_id < 1) {
           return res.status(403).json({
             success: false,
-            message: 'Access denied. Only agents can perform AI evaluation.'
+            message: "Access denied. Only agents can perform AI evaluation.",
           });
         }
 
-        // Get project details to determine project category (for future use if needed)
-        const [projectDetails] = await connection.execute(
-          'SELECT project_category_id FROM project WHERE project_id = ?',
-          [projectId]
-        ) as [any[], any];
-
-        if (projectDetails.length === 0) {
-          return res.status(404).json({
-            success: false,
-            message: 'Project not found'
-          });
-        }
-        
         // Parse Excel file
         let workbook;
         try {
-          workbook = xlsx.read(file.buffer, { type: 'buffer' });
+          workbook = xlsx.read(file.buffer, { type: "buffer" });
         } catch (error) {
           return res.status(400).json({
             success: false,
-            message: 'Invalid Excel file format'
+            message: "Invalid Excel file format",
           });
         }
 
@@ -109,52 +110,57 @@ export const evaluateExcelFile = async (req: AuthenticatedRequest, res: Response
         if (jsonData.length === 0) {
           return res.status(400).json({
             success: false,
-            message: 'Excel file is empty'
+            message: "Excel file is empty",
           });
         }
 
         // Get task details for important columns
-        const [taskDetails] = await connection.execute(
-          'SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?',
-          [taskId, projectId]
-        ) as [any[], any];
+        const [taskDetails] = (await connection.execute(
+          "SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?",
+          [taskId, projectId],
+        )) as [any[], any];
 
         // Prepare AI prompt with default criteria and data
-        const aiPrompt = generateAIPrompt(jsonData, taskDetails[0]?.important_columns || '');
-        
+        const aiPrompt = generateAIPrompt(
+          jsonData,
+          taskDetails[0]?.important_columns || "",
+        );
+
         // Call AI service through queue for rate limiting
         const aiResponse = await AIService.evaluateData(aiPrompt);
-        
+
         // Parse AI response and format results
         const evaluationResult = parseAIResponse(aiResponse, jsonData.length);
 
         res.status(200).json({
           success: true,
-          message: 'AI evaluation completed successfully',
-          data: evaluationResult
+          message: "AI evaluation completed successfully",
+          data: evaluationResult,
         });
-
       } finally {
         await connection.end();
       }
     });
   } catch (error) {
-    console.error('AI evaluation error:', error);
+    console.error("AI evaluation error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error during AI evaluation'
+      message: "Internal server error during AI evaluation",
     });
   }
 };
 
 // Check for duplicates
-export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) => {
+export const checkDuplicates = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
   try {
-    upload.single('file')(req, res, async (err: any) => {
+    upload.single("file")(req, res, async (err: any) => {
       if (err) {
         return res.status(400).json({
           success: false,
-          message: err.message
+          message: err.message,
         });
       }
 
@@ -168,14 +174,14 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
       if (!file) {
         return res.status(400).json({
           success: false,
-          message: 'No file uploaded'
+          message: "No file uploaded",
         });
       }
 
       if (!userId || !projectId || !taskId) {
         return res.status(400).json({
           success: false,
-          message: 'user_id, project_id, and task_id are required'
+          message: "user_id, project_id, and task_id are required",
         });
       }
 
@@ -184,35 +190,35 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
       try {
         // Verify user is QC agent or higher
         const user = await userQueries.getUserWithDesignation(userId);
-        
+
         if (!user || user.designation_id < 1) {
           return res.status(403).json({
             success: false,
-            message: 'Access denied. Only agents can perform duplicate check.'
+            message: "Access denied. Only agents can perform duplicate check.",
           });
         }
 
         // Get task details to understand important columns
-        const [taskDetails] = await connection.execute(
-          'SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?',
-          [taskId, projectId]
-        ) as [any[], any];
+        const [taskDetails] = (await connection.execute(
+          "SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?",
+          [taskId, projectId],
+        )) as [any[], any];
 
         if (taskDetails.length === 0) {
           return res.status(404).json({
             success: false,
-            message: 'Task not found'
+            message: "Task not found",
           });
         }
 
         // Parse Excel file
         let workbook;
         try {
-          workbook = xlsx.read(file.buffer, { type: 'buffer' });
+          workbook = xlsx.read(file.buffer, { type: "buffer" });
         } catch (error) {
           return res.status(400).json({
             success: false,
-            message: 'Invalid Excel file format'
+            message: "Invalid Excel file format",
           });
         }
 
@@ -223,43 +229,57 @@ export const checkDuplicates = async (req: AuthenticatedRequest, res: Response) 
         if (jsonData.length === 0) {
           return res.status(400).json({
             success: false,
-            message: 'Excel file is empty'
+            message: "Excel file is empty",
           });
         }
 
-        const fallbackHeaders = (jsonData[0] && typeof jsonData[0] === 'object') ? Object.keys(jsonData[0] as any) : [];
-        const importantColumns = parseImportantColumns(taskDetails[0].important_columns, fallbackHeaders);
+        const fallbackHeaders =
+          jsonData[0] && typeof jsonData[0] === "object"
+            ? Object.keys(jsonData[0] as any)
+            : [];
+        const importantColumns = parseImportantColumns(
+          taskDetails[0].important_columns,
+          fallbackHeaders,
+        );
 
         // Generate hashes for current file records
         const currentHashes = generateHashes(jsonData, importantColumns);
-        
+
         // Get existing hashes from tracker_records table
-        const existingHashes = await getExistingHashes(connection, projectId, taskId);
-        
+        const existingHashes = await getExistingHashes(
+          connection,
+          projectId,
+          taskId,
+        );
+
         // Find duplicates
-        const duplicates = findDuplicates(currentHashes, existingHashes, jsonData, importantColumns);
-        
+        const duplicates = findDuplicates(
+          currentHashes,
+          existingHashes,
+          jsonData,
+          importantColumns,
+        );
+
         res.status(200).json({
           success: true,
-          message: 'Duplicate check completed',
+          message: "Duplicate check completed",
           data: {
             hasDuplicates: duplicates.length > 0,
             duplicateCount: duplicates.length,
             duplicates: duplicates.slice(0, 10), // Return first 10 duplicates
             totalRecords: jsonData.length,
-            uniqueRecords: jsonData.length - duplicates.length
-          }
+            uniqueRecords: jsonData.length - duplicates.length,
+          },
         });
-
       } finally {
         await connection.end();
       }
     });
   } catch (error) {
-    console.error('Duplicate check error:', error);
+    console.error("Duplicate check error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error during duplicate check'
+      message: "Internal server error during duplicate check",
     });
   }
 };
