@@ -269,6 +269,22 @@ export class AIService {
     }
   }
 
+  // Evaluate Excel data with custom prompt
+  static async evaluateData(prompt: string) {
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        prompt: prompt,
+        ...AI_CONFIG.defaultOptions,
+      });
+
+      return this.parseJson(text);
+    } catch (error) {
+      console.error('Error evaluating data with AI:', error);
+      throw new Error('Failed to evaluate data with AI');
+    }
+  }
+
   // Check if AI is properly configured
   static isConfigured(): boolean {
     return !!(process.env.GOOGLE_GENERATIVE_AI_API_KEY && AI_CONFIG.model);

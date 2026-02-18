@@ -8,6 +8,7 @@ import qcEvaluationRoutes from "./routes/qc-evaluation.routes";
 import categoryRoutes from "./routes/category.routes";
 import qcScoringRoutes from "./routes/qc-scoring.routes";
 import qcEvaluationUpdatedRoutes from "./routes/qc-evaluation-updated.routes";
+import aiEvaluationRoutes from "./routes/ai-evaluation.routes";
 
 const app = express();
 app.use(express.json());
@@ -33,6 +34,7 @@ app.use("/api/v1", qcEvaluationRoutes);
 app.use("/api/v1", categoryRoutes);
 app.use("/api/v1", qcScoringRoutes);
 app.use("/api/v1", qcEvaluationUpdatedRoutes);
+app.use("/api/v1", aiEvaluationRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);

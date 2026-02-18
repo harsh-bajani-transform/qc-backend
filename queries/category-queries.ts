@@ -51,11 +51,11 @@ const categoryQueries = {
     try {
       // First get main categories (afd_category_id = 0)
       const [categories] = await connection.execute(
-        `SELECT qc_afd_id, afd_name, afd_points, project_category_id 
+        `SELECT qc_afd_id, afd_name, afd_points 
          FROM qc_afd 
-         WHERE project_category_id = ? AND afd_category_id = 0 
+         WHERE afd_category_id = 0 
          ORDER BY qc_afd_id`,
-        [projectCategoryId]
+        []
       ) as [any[], any];
 
       // For each category, get its subcategories
@@ -94,16 +94,13 @@ const categoryQueries = {
   getAllCategoriesWithSubcategories: async (): Promise<{ [key: number]: CategoryWithSubcategories[] }> => {
     const connection = await get_db_connection();
     try {
-      const [projectCategories] = await connection.execute(
-        'SELECT project_category_id FROM project_category ORDER BY project_category_id'
-      ) as [any[], any];
-
       const result: { [key: number]: CategoryWithSubcategories[] } = {};
       
-      for (const project of projectCategories) {
-        result[project.project_category_id] = await categoryQueries.getCategoriesByProjectType(project.project_category_id);
+      // Return all categories for all project types (since project_category_id column doesn't exist)
+      for (let i = 1; i <= 5; i++) {
+        result[i] = await categoryQueries.getCategoriesByProjectType(i);
       }
-
+      
       return result;
     } finally {
       await connection.end();
