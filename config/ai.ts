@@ -1,17 +1,17 @@
-import { google } from '@ai-sdk/google';
-import { generateText } from 'ai';
-import dotenv from 'dotenv';
+import { google } from "@ai-sdk/google";
+import { generateText } from "ai";
+import dotenv from "dotenv";
 
 dotenv.config();
 
 // AI Configuration for QC Evaluation Analysis
 export const AI_CONFIG = {
-  model: google('gemini-2.5-flash'),
+  model: google("gemini-2.5-flash"),
   defaultOptions: {
     temperature: 0.3, // Lower temperature for consistent analysis
     maxTokens: 1500, // Reasonable limit for detailed feedback
-    timeout: 100000, // 60 seconds timeout for Vercel/serverless environments
-  }
+    timeout: 180000, // 180 seconds timeout for large batch processing
+  },
 };
 
 // QC Evaluation Criteria Prompts
@@ -59,8 +59,12 @@ export const QC_PROMPTS = {
     If it fails, specify exactly which criteria failed and why, and point to the field(s) involved.
     
     RECORDS:
-    ${records.map((record, index) => `Record ${index + 1}:
-    ${JSON.stringify(record, null, 2)}`).join('\n    ')}
+    ${records
+      .map(
+        (record, index) => `Record ${index + 1}:
+    ${JSON.stringify(record, null, 2)}`,
+      )
+      .join("\n    ")}
     
     EVALUATION CRITERIA:
     ${JSON.stringify(criteria, null, 2)}
@@ -174,115 +178,144 @@ export const QC_PROMPTS = {
       "improvementSuggestions": ["<string>"],
       "nextSteps": ["<string>"]
     }
-  `
+  `,
 };
 
 // AI Service Functions
 export class AIService {
   private static model = AI_CONFIG.model;
 
+  /**
+   * Get the model to use — use a user-supplied key if provided, otherwise fall back to env key.
+   */
+  private static getModel(apiKey?: string) {
+    if (apiKey) {
+      // Create a per-request google instance with the user's own key
+      const { createGoogleGenerativeAI } = require("@ai-sdk/google");
+      const userGoogle = createGoogleGenerativeAI({ apiKey });
+      return userGoogle("gemini-2.5-flash");
+    }
+
+    // Fallback is disabled as per user concern.
+    // We strictly require a user-provided API key now.
+    throw new Error(
+      "Gemini API key is required. Please provide your own key in the AI Configuration.",
+    );
+  }
+
   private static parseJson(text: string) {
     let cleanText = text;
-    cleanText = cleanText.replace(/```json\n?/gi, '```');
-    if (cleanText.includes('```')) {
-      cleanText = cleanText.replace(/```\n?([\s\S]*?)```/g, '$1').trim();
+    cleanText = cleanText.replace(/```json\n?/gi, "```");
+    if (cleanText.includes("```")) {
+      cleanText = cleanText.replace(/```\n?([\s\S]*?)```/g, "$1").trim();
     }
 
     try {
       return JSON.parse(cleanText);
     } catch {
-      const firstObj = cleanText.indexOf('{');
-      const lastObj = cleanText.lastIndexOf('}');
-      const firstArr = cleanText.indexOf('[');
-      const lastArr = cleanText.lastIndexOf(']');
+      const firstObj = cleanText.indexOf("{");
+      const lastObj = cleanText.lastIndexOf("}");
+      const firstArr = cleanText.indexOf("[");
+      const lastArr = cleanText.lastIndexOf("]");
 
-      if (firstArr !== -1 && lastArr !== -1 && (firstObj === -1 || firstArr < firstObj)) {
+      if (
+        firstArr !== -1 &&
+        lastArr !== -1 &&
+        (firstObj === -1 || firstArr < firstObj)
+      ) {
         return JSON.parse(cleanText.slice(firstArr, lastArr + 1));
       }
       if (firstObj !== -1 && lastObj !== -1) {
         return JSON.parse(cleanText.slice(firstObj, lastObj + 1));
       }
-      throw new Error('AI returned non-JSON response');
+      throw new Error("AI returned non-JSON response");
     }
   }
 
   // Analyze a single record against criteria
-  static async analyzeRecord(recordData: any, criteria: any) {
+  static async analyzeRecord(recordData: any, criteria: any, apiKey?: string) {
     try {
       const { text } = await generateText({
-        model: this.model,
+        model: this.getModel(apiKey),
         prompt: QC_PROMPTS.analyzeRecord(recordData, criteria),
         ...AI_CONFIG.defaultOptions,
       });
 
       return this.parseJson(text);
     } catch (error) {
-      console.error('Error analyzing record with AI:', error);
-      throw new Error('Failed to analyze record with AI');
+      console.error("Error analyzing record with AI:", error);
+      throw new Error("Failed to analyze record with AI");
     }
   }
 
   // Analyze multiple records at once (more efficient)
-  static async analyzeRecords(records: any[], criteria: any) {
+  static async analyzeRecords(records: any[], criteria: any, apiKey?: string) {
     try {
       const { text } = await generateText({
-        model: this.model,
+        model: this.getModel(apiKey),
         prompt: QC_PROMPTS.analyzeRecords(records, criteria),
         ...AI_CONFIG.defaultOptions,
       });
 
       return this.parseJson(text);
     } catch (error) {
-      console.error('Error analyzing records with AI:', error);
-      throw new Error('Failed to analyze records with AI');
+      console.error("Error analyzing records with AI:", error);
+      throw new Error("Failed to analyze records with AI");
     }
   }
 
   // Generate comprehensive feedback for evaluation results
-  static async generateEvaluationFeedback(evaluationData: any, overallScore: number) {
+  static async generateEvaluationFeedback(
+    evaluationData: any,
+    overallScore: number,
+    apiKey?: string,
+  ) {
     try {
       const { text } = await generateText({
-        model: this.model,
+        model: this.getModel(apiKey),
         prompt: QC_PROMPTS.generateFeedback(evaluationData, overallScore),
         ...AI_CONFIG.defaultOptions,
       });
 
       return this.parseJson(text);
     } catch (error) {
-      console.error('Error generating AI feedback:', error);
-      throw new Error('Failed to generate AI feedback');
+      console.error("Error generating AI feedback:", error);
+      throw new Error("Failed to generate AI feedback");
     }
   }
 
   // Generate AFD-based feedback for category-specific errors
-  static async generateAFDEvaluationFeedback(errorAnalysis: any) {
+  static async generateAFDEvaluationFeedback(
+    errorAnalysis: any,
+    apiKey?: string,
+  ) {
     try {
       const { text } = await generateText({
-        model: this.model,
+        model: this.getModel(apiKey),
         prompt: QC_PROMPTS.generateAFDFeedback(errorAnalysis),
         ...AI_CONFIG.defaultOptions,
       });
 
       return this.parseJson(text);
     } catch (error) {
-      console.error('Error generating AFD AI feedback:', error);
-      throw new Error('Failed to generate AFD AI feedback');
+      console.error("Error generating AFD AI feedback:", error);
+      throw new Error("Failed to generate AFD AI feedback");
     }
   }
 
   // Evaluate Excel data with custom prompt
-  static async evaluateData(prompt: string) {
+  static async evaluateData(prompt: string, apiKey?: string) {
     try {
       const { text } = await generateText({
-        model: this.model,
+        model: this.getModel(apiKey),
         prompt: prompt,
         ...AI_CONFIG.defaultOptions,
       });
 
       return this.parseJson(text);
     } catch (error) {
-      console.error('Error evaluating data with AI:', error);
-      throw new Error('Failed to evaluate data with AI');
+      console.error("Error evaluating data with AI:", error);
+      throw new Error("Failed to evaluate data with AI");
     }
   }
 

@@ -9,11 +9,12 @@ import categoryRoutes from "./routes/category.routes";
 import qcScoringRoutes from "./routes/qc-scoring.routes";
 import qcEvaluationUpdatedRoutes from "./routes/qc-evaluation-updated.routes";
 import aiEvaluationRoutes from "./routes/ai-evaluation.routes";
+import geminiKeyRoutes from "./routes/gemini-key.routes";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors({origin: "*"}));
+app.use(cors({ origin: "*" }));
 
 app.get("/api/v1", (req: Request, res: Response) => {
   res.send("Hello, TFS QC Eval Backend!");
@@ -35,6 +36,7 @@ app.use("/api/v1", categoryRoutes);
 app.use("/api/v1", qcScoringRoutes);
 app.use("/api/v1", qcEvaluationUpdatedRoutes);
 app.use("/api/v1", aiEvaluationRoutes);
+app.use("/api/v1", geminiKeyRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);

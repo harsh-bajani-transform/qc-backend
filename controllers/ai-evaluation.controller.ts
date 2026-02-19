@@ -9,6 +9,7 @@ import {
   getExistingHashes,
   parseAIResponse,
   parseImportantColumns,
+  aggregateAIResults,
 } from "../utils/ai-evaluation-utils";
 import multer, { FileFilterCallback } from "multer";
 import xlsx from "xlsx";
@@ -59,11 +60,14 @@ export const evaluateExcelFile = async (
       }
 
       const file = req.file;
-      const { user_id, project_id, task_id } = req.body;
+      const { user_id, project_id, task_id, gemini_api_key } = req.body;
 
       const userId = Number(user_id);
       const projectId = Number(project_id);
       const taskId = Number(task_id);
+      const userApiKey = gemini_api_key
+        ? String(gemini_api_key).trim()
+        : undefined;
 
       if (!file) {
         return res.status(400).json({
@@ -120,22 +124,38 @@ export const evaluateExcelFile = async (
           [taskId, projectId],
         )) as [any[], any];
 
-        // Prepare AI prompt with default criteria and data
-        const aiPrompt = generateAIPrompt(
-          jsonData,
-          taskDetails[0]?.important_columns || "",
+        const importantColumns = taskDetails[0]?.important_columns || "";
+
+        // --- BATCH PROCESSING ---
+        const BATCH_SIZE = 50;
+        const totalRecords = jsonData.length;
+        const batches = [];
+
+        for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
+          batches.push(jsonData.slice(i, i + BATCH_SIZE));
+        }
+
+        console.log(
+          `Processing ${totalRecords} records in ${batches.length} batches...`,
         );
 
-        // Call AI service through queue for rate limiting
-        const aiResponse = await AIService.evaluateData(aiPrompt);
+        // Process all batches in parallel
+        const batchPromises = batches.map(async (batch, index) => {
+          const aiPrompt = generateAIPrompt(batch, importantColumns);
+          const aiResponse = await AIService.evaluateData(aiPrompt, userApiKey);
+          return parseAIResponse(aiResponse, batch.length);
+        });
 
-        // Parse AI response and format results
-        const evaluationResult = parseAIResponse(aiResponse, jsonData.length);
+        const batchResults = await Promise.all(batchPromises);
+
+        // Aggregate results
+        const aggregatedResult = aggregateAIResults(batchResults);
 
         res.status(200).json({
-          success: true,
-          message: "AI evaluation completed successfully",
-          data: evaluationResult,
+          success: aggregatedResult?.status === "success" || true,
+          message:
+            aggregatedResult?.message || "AI evaluation completed successfully",
+          data: aggregatedResult,
         });
       } finally {
         await connection.end();

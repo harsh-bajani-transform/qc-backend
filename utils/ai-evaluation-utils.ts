@@ -1,36 +1,46 @@
 // AI Evaluation utility functions
-import crypto from 'crypto';
+import crypto from "crypto";
 
 function normalizeKey(value: string) {
-  return String(value ?? '').toLowerCase().trim();
+  return String(value ?? "")
+    .toLowerCase()
+    .trim();
 }
 
 function normalizeCellValue(value: any) {
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) return "";
   return String(value).toLowerCase().trim();
 }
 
-export function parseImportantColumns(rawImportantColumns: any, fallbackHeaders: string[]) {
-  if (Array.isArray(rawImportantColumns)) return rawImportantColumns.map((c) => String(c).trim()).filter(Boolean);
-  if (typeof rawImportantColumns !== 'string') return fallbackHeaders;
+export function parseImportantColumns(
+  rawImportantColumns: any,
+  fallbackHeaders: string[],
+) {
+  if (Array.isArray(rawImportantColumns))
+    return rawImportantColumns.map((c) => String(c).trim()).filter(Boolean);
+  if (typeof rawImportantColumns !== "string") return fallbackHeaders;
 
   const text = rawImportantColumns.trim();
   if (!text) return fallbackHeaders;
 
   try {
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return parsed.map((c) => String(c).trim()).filter(Boolean);
+    if (Array.isArray(parsed))
+      return parsed.map((c) => String(c).trim()).filter(Boolean);
   } catch {
     // ignore
   }
 
-  return text.split(',').map((c) => c.trim()).filter(Boolean);
+  return text
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
 }
 
 // Generate concise AI prompt for focused analysis
 export function generateAIPrompt(data: any[], importantColumns: string) {
   const totalRecords = data.length;
-  
+
   return `
 You are a QC expert performing comprehensive data quality analysis on a QC dataset.
 
@@ -89,71 +99,78 @@ QC ANALYSIS REQUIREMENTS:
 export function parseAIResponse(aiResponse: string, totalRecords: number) {
   try {
     const parsed = JSON.parse(aiResponse);
-    
+
     // Debug: Log the AI response to understand its structure
-    console.log('AI Response structure:', JSON.stringify(parsed, null, 2));
-    
+    console.log("AI Response structure:", JSON.stringify(parsed, null, 2));
+
     // Calculate valid records based on actual problematic records count
     let problematicRecordsCount = 0;
-    
+
     if (parsed.criticalIssues && parsed.criticalIssues.length > 0) {
       // Count actual problematic records from criticalIssues
-      problematicRecordsCount = parsed.criticalIssues.reduce((count: number, issue: any) => {
-        // If issue specifies affected records, use that
-        if (issue.affectedRecords) {
-          return count + issue.affectedRecords;
-        }
-        // If issue specifies rows/records in the description, try to extract it
-        if (issue.issue && issue.issue.match(/(\d+)\s+records?/)) {
-          const matches = issue.issue.match(/(\d+)\s+records?/);
-          return count + parseInt(matches[1]);
-        }
-        // If issue mentions specific rows, count them
-        if (issue.location && issue.location.match(/rows?\s+(\d+)/)) {
-          const matches = issue.location.match(/rows?\s+(\d+)/);
-          return count + parseInt(matches[1]);
-        }
-        // Default to 1 record per issue
-        return count + 1;
-      }, 0);
+      problematicRecordsCount = parsed.criticalIssues.reduce(
+        (count: number, issue: any) => {
+          // If issue specifies affected records, use that
+          if (issue.affectedRecords) {
+            return count + issue.affectedRecords;
+          }
+          // If issue specifies rows/records in the description, try to extract it
+          if (issue.issue && issue.issue.match(/(\d+)\s+records?/)) {
+            const matches = issue.issue.match(/(\d+)\s+records?/);
+            return count + parseInt(matches[1]);
+          }
+          // If issue mentions specific rows, count them
+          if (issue.location && issue.location.match(/rows?\s+(\d+)/)) {
+            const matches = issue.location.match(/rows?\s+(\d+)/);
+            return count + parseInt(matches[1]);
+          }
+          // Default to 1 record per issue
+          return count + 1;
+        },
+        0,
+      );
     } else if (parsed.issuesFound !== undefined) {
       // Use issuesFound if no criticalIssues
       problematicRecordsCount = parsed.issuesFound;
     }
-    
+
     // Ensure we don't have more problematic records than total records
     problematicRecordsCount = Math.min(problematicRecordsCount, totalRecords);
     const validRecords = Math.max(0, totalRecords - problematicRecordsCount);
-    
-    console.log('Calculated:', { totalRecords, problematicRecordsCount, validRecords });
-    
+
+    console.log("Calculated:", {
+      totalRecords,
+      problematicRecordsCount,
+      validRecords,
+    });
+
     return {
-      status: 'success',
-      message: 'AI Evaluation Complete',
+      status: "success",
+      message: "AI Evaluation Complete",
       qualityScore: parsed.qualityScore || 0,
       details: {
         totalRecords: totalRecords,
         validRecords: validRecords,
-        issuesFound: problematicRecordsCount
+        issuesFound: problematicRecordsCount,
       },
-      summary: parsed.summary || 'AI analysis completed',
+      summary: parsed.summary || "AI analysis completed",
       suggestions: parsed.suggestions || [],
-      criticalIssues: parsed.criticalIssues || []
+      criticalIssues: parsed.criticalIssues || [],
     };
   } catch (error) {
     // Fallback if AI response is not valid JSON
     return {
-      status: 'success',
-      message: 'AI Evaluation Complete',
+      status: "success",
+      message: "AI Evaluation Complete",
       qualityScore: 85,
       details: {
         totalRecords: totalRecords,
         validRecords: totalRecords - 1,
-        issuesFound: 1
+        issuesFound: 1,
       },
-      summary: aiResponse || 'AI analysis completed',
+      summary: aiResponse || "AI analysis completed",
       suggestions: [],
-      criticalIssues: []
+      criticalIssues: [],
     };
   }
 }
@@ -165,47 +182,59 @@ export function generateHashes(data: any[], importantColumns: string[]) {
     const keyMap = new Map<string, string>();
     recordKeys.forEach((k) => keyMap.set(normalizeKey(k), k));
 
-    const colsToUse = importantColumns.length > 0 ? importantColumns : recordKeys;
+    const colsToUse =
+      importantColumns.length > 0 ? importantColumns : recordKeys;
     const hashInput = colsToUse
       .map((col) => {
         const originalKey = keyMap.get(normalizeKey(col));
-        return originalKey ? normalizeCellValue((record as any)[originalKey]) : '';
+        return originalKey
+          ? normalizeCellValue((record as any)[originalKey])
+          : "";
       })
-      .join('|')
+      .join("|")
       .trim();
 
     return {
       row: index + 2,
-      hash: crypto.createHash('sha256').update(hashInput).digest('hex'),
+      hash: crypto.createHash("sha256").update(hashInput).digest("hex"),
     };
   });
 }
 
 // Get existing hashes from database
-export async function getExistingHashes(connection: any, projectId: number, taskId: number) {
-  const [existingRecords] = await connection.execute(
-    'SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ?',
-    [projectId, taskId]
-  ) as [any[], any];
+export async function getExistingHashes(
+  connection: any,
+  projectId: number,
+  taskId: number,
+) {
+  const [existingRecords] = (await connection.execute(
+    "SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ?",
+    [projectId, taskId],
+  )) as [any[], any];
 
   return existingRecords.map((record: any) => record.hash_value);
 }
 
 // Find duplicates between current and existing hashes
-export function findDuplicates(currentHashes: any[], existingHashes: string[], originalData: any[], importantColumns: string[]) {
+export function findDuplicates(
+  currentHashes: any[],
+  existingHashes: string[],
+  originalData: any[],
+  importantColumns: string[],
+) {
   const existingHashSet = new Set<string>(existingHashes);
   const duplicates: any[] = [];
 
   currentHashes.forEach((item, index) => {
     if (existingHashSet.has(item.hash)) {
       const rowData = originalData[index];
-      
+
       // Extract the important column values that caused this duplicate
       const duplicateFields: any = {};
-      importantColumns.forEach(col => {
+      importantColumns.forEach((col) => {
         // Find matching header (case-insensitive)
-        const matchingKey = Object.keys(rowData).find(key => 
-          key.toLowerCase().trim() === col.toLowerCase().trim()
+        const matchingKey = Object.keys(rowData).find(
+          (key) => key.toLowerCase().trim() === col.toLowerCase().trim(),
         );
         if (matchingKey) {
           duplicateFields[col] = rowData[matchingKey];
@@ -217,10 +246,65 @@ export function findDuplicates(currentHashes: any[], existingHashes: string[], o
         hash: item.hash,
         data: rowData,
         duplicateColumns: importantColumns,
-        duplicateValues: duplicateFields
+        duplicateValues: duplicateFields,
       });
     }
   });
 
   return duplicates;
+}
+
+// Aggregate multiple AI evaluation results into one
+export function aggregateAIResults(results: any[]) {
+  if (!results || results.length === 0) return null;
+
+  let totalQualityScore = 0;
+  let totalRecords = 0;
+  let validRecords = 0;
+  let issuesFound = 0;
+  let allSuggestions: string[] = [];
+  let allCriticalIssues: any[] = [];
+  let summaries: string[] = [];
+
+  results.forEach((data) => {
+    if (!data) return;
+    const chunkWeight = data.details?.totalRecords || 0;
+
+    totalQualityScore += (data.qualityScore || 0) * chunkWeight;
+    totalRecords += chunkWeight;
+    validRecords += data.details?.validRecords || 0;
+    issuesFound += data.details?.issuesFound || 0;
+
+    if (data.suggestions)
+      allSuggestions = [...allSuggestions, ...data.suggestions];
+    if (data.criticalIssues)
+      allCriticalIssues = [...allCriticalIssues, ...data.criticalIssues];
+    if (data.summary) summaries.push(data.summary);
+  });
+
+  // Unique suggestions and limit
+  const uniqueSuggestions = Array.from(new Set(allSuggestions)).slice(0, 5);
+
+  // Calculate average quality score weighted by records
+  const finalQualityScore =
+    totalRecords > 0 ? Math.round(totalQualityScore / totalRecords) : 0;
+
+  return {
+    status: "success",
+    message: "AI Evaluation Complete (Batched)",
+    qualityScore: finalQualityScore,
+    details: {
+      totalRecords,
+      validRecords,
+      issuesFound,
+    },
+    summary:
+      summaries.length > 0
+        ? summaries[0].length > 200
+          ? summaries[0].slice(0, 200) + "..."
+          : summaries[0]
+        : "Batch analysis completed.",
+    suggestions: uniqueSuggestions,
+    criticalIssues: allCriticalIssues.slice(0, 50), // Limit to avoid massive payloads
+  };
 }
