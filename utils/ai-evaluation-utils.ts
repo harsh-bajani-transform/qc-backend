@@ -175,47 +175,44 @@ export function parseAIResponse(aiResponse: string, totalRecords: number) {
   }
 }
 
-// Generate hashes for records (aligned with tracker-process)
+// Generate hashes for records (aligned exactly with tracker-process logic)
 export function generateHashes(data: any[], importantColumns: string[]) {
   return data.map((record, index) => {
     const recordKeys = Object.keys(record || {});
+    // case-insensitive header mapping
     const keyMap = new Map<string, string>();
-    recordKeys.forEach((k) => keyMap.set(normalizeKey(k), k));
+    recordKeys.forEach((k) => keyMap.set(k.toLowerCase().trim(), k));
 
     const colsToUse =
       importantColumns.length > 0 ? importantColumns : recordKeys;
-    const hashInput = colsToUse
-      .map((col) => {
-        const originalKey = keyMap.get(normalizeKey(col));
-        return originalKey
-          ? normalizeCellValue((record as any)[originalKey])
-          : "";
-      })
-      .join("|")
-      .trim();
+
+    // Logic aligned with tracker-process.controller.ts:
+    // map individually, join with |, then toLowerCase().trim()
+    const hashValues = colsToUse.map((col) => {
+      const originalKey = keyMap.get(col.toLowerCase().trim());
+      return originalKey ? ((record as any)[originalKey] ?? "") : "";
+    });
+
+    const hashInput = hashValues.join("|").toLowerCase().trim();
 
     return {
       row: index + 2,
       hash: crypto.createHash("sha256").update(hashInput).digest("hex"),
+      hashInput, // Optional: for debugging
     };
   });
 }
 
-// Get existing hashes from database
-export async function getExistingHashes(
-  connection: any,
-  projectId: number,
-  taskId: number,
-) {
+// Get existing hashes from database (Global check)
+export async function getExistingHashes(connection: any) {
   const [existingRecords] = (await connection.execute(
-    "SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ?",
-    [projectId, taskId],
+    "SELECT DISTINCT hash_value FROM tracker_records",
   )) as [any[], any];
 
   return existingRecords.map((record: any) => record.hash_value);
 }
 
-// Find duplicates between current and existing hashes
+// Find duplicates between current and existing hashes (including internal)
 export function findDuplicates(
   currentHashes: any[],
   existingHashes: string[],
@@ -223,16 +220,23 @@ export function findDuplicates(
   importantColumns: string[],
 ) {
   const existingHashSet = new Set<string>(existingHashes);
+  const seenHashesInFile = new Map<string, number>(); // hash -> first row it appeared
   const duplicates: any[] = [];
 
   currentHashes.forEach((item, index) => {
-    if (existingHashSet.has(item.hash)) {
-      const rowData = originalData[index];
+    const hash = item.hash;
+    const rowData = originalData[index];
 
+    const duplicateInDb = existingHashSet.has(hash);
+    const duplicateInFile = seenHashesInFile.has(hash);
+
+    if (duplicateInDb || duplicateInFile) {
       // Extract the important column values that caused this duplicate
       const duplicateFields: any = {};
-      importantColumns.forEach((col) => {
-        // Find matching header (case-insensitive)
+      const actualImportantCols =
+        importantColumns.length > 0 ? importantColumns : Object.keys(rowData);
+
+      actualImportantCols.forEach((col) => {
         const matchingKey = Object.keys(rowData).find(
           (key) => key.toLowerCase().trim() === col.toLowerCase().trim(),
         );
@@ -243,11 +247,22 @@ export function findDuplicates(
 
       duplicates.push({
         row: item.row,
-        hash: item.hash,
+        hash: hash,
+        type:
+          duplicateInDb && duplicateInFile
+            ? "both"
+            : duplicateInDb
+              ? "database"
+              : "internal",
+        firstOccurrenceRow: seenHashesInFile.get(hash),
         data: rowData,
-        duplicateColumns: importantColumns,
+        duplicateColumns: actualImportantCols,
         duplicateValues: duplicateFields,
       });
+    }
+
+    if (!seenHashesInFile.has(hash)) {
+      seenHashesInFile.set(hash, item.row);
     }
   });
 

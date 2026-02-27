@@ -265,12 +265,22 @@ export const checkDuplicates = async (
         // Generate hashes for current file records
         const currentHashes = generateHashes(jsonData, importantColumns);
 
-        // Get existing hashes from tracker_records table
-        const existingHashes = await getExistingHashes(
-          connection,
-          projectId,
-          taskId,
+        // DEBUG: Log sample of generated hashes
+        if (currentHashes.length > 0) {
+          console.log(
+            `[Duplicate Check] Sample Hash Input: "${currentHashes[0].hashInput}" -> Hash: ${currentHashes[0].hash}`,
+          );
+        }
+
+        // Get existing hashes from tracker_records table (Global Check)
+        const existingHashes = await getExistingHashes(connection);
+
+        console.log(
+          `[Duplicate Check] Found ${existingHashes.length} existing hashes in DB (Global Check)`,
         );
+        if (existingHashes.length > 0) {
+          console.log(`[Duplicate Check] Sample DB Hash: ${existingHashes[0]}`);
+        }
 
         // Find duplicates
         const duplicates = findDuplicates(
