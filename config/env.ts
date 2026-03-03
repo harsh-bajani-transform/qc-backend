@@ -14,6 +14,7 @@ export const {
   SMTP_USER,
   SMTP_PASS,
   SMTP_FROM_NAME,
+  UPLOADS_DIR,
   DB_HOST,
   DB_PORT,
   DB_DATABASE,

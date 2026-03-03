@@ -1,30 +1,29 @@
 import path from "path";
 import fs from "fs";
+import { UPLOADS_DIR } from "../config/env";
 
 export class PathResolver {
   /**
-   * Resolves file paths from Python backend to actual file system paths
-   * Handles both local and production environments
+   * Returns the base uploads paths to search - driven by the UPLOADS_DIR env variable.
+   * If UPLOADS_DIR is set, it is checked first (as both the root and with a tracker_files subdirectory).
+   * Falls back to paths relative to the current working directory for local development.
    */
-  static resolveFilePath(pythonFilePath: string): string {
-    let relativePath = pythonFilePath;
+  private static getBasePaths(): string[] {
+    const basePaths: string[] = [];
 
-    // Normalize path by removing known prefixes
-    if (pythonFilePath.startsWith("/python/uploads/")) {
-      relativePath = pythonFilePath.replace("/python/uploads/", "");
-    } else if (pythonFilePath.startsWith("uploads/")) {
-      relativePath = pythonFilePath.replace("uploads/", "");
-    } else if (pythonFilePath.includes("uploads/")) {
-      // Handle cases like "backend/uploads/..."
-      const parts = pythonFilePath.split("uploads/");
-      relativePath = parts[parts.length - 1];
+    // Primary: from environment variable (configured per deployment)
+    if (UPLOADS_DIR) {
+      basePaths.push(UPLOADS_DIR);
+      basePaths.push(path.join(UPLOADS_DIR, "tracker_files"));
     }
 
-    // List of possible base paths for the 'uploads' directory
-    const possibleBasePaths = [
-      path.join(process.cwd(), "uploads"),
-      path.join(process.cwd(), "uploads", "tracker_files"),
+    // Fallbacks for local development (cwd-relative)
+    basePaths.push(path.join(process.cwd(), "uploads"));
+    basePaths.push(path.join(process.cwd(), "uploads", "tracker_files"));
+    basePaths.push(
       path.join(process.cwd(), "..", "hrms", "backend", "uploads"),
+    );
+    basePaths.push(
       path.join(
         process.cwd(),
         "..",
@@ -33,51 +32,37 @@ export class PathResolver {
         "uploads",
         "tracker_files",
       ),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms",
-        "backend",
-        "uploads",
-      ),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms",
-        "backend",
-        "uploads",
-        "tracker_files",
-      ),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms-backup",
-        "uploads",
-      ),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms-backup",
-        "uploads",
-        "tracker_files",
-      ),
-      "/root/tfshrms/hrms-backend/uploads",
-      "/root/tfshrms/hrms-backend/uploads/tracker_files",
-    ];
+    );
+    basePaths.push(path.join(process.cwd(), "..", "hrms-backup", "uploads"));
+    basePaths.push(
+      path.join(process.cwd(), "..", "hrms-backup", "uploads", "tracker_files"),
+    );
 
-    for (const basePath of possibleBasePaths) {
+    return basePaths;
+  }
+
+  /**
+   * Strips known upload prefixes from a Python-style file path to get the relative filename.
+   */
+  private static extractRelativePath(pythonFilePath: string): string {
+    if (pythonFilePath.startsWith("/python/uploads/")) {
+      return pythonFilePath.replace("/python/uploads/", "");
+    }
+    if (pythonFilePath.includes("uploads/")) {
+      const parts = pythonFilePath.split("uploads/");
+      return parts[parts.length - 1];
+    }
+    return pythonFilePath;
+  }
+
+  /**
+   * Resolves a Python-backend file path to an absolute path on the local filesystem.
+   * Checks UPLOADS_DIR first, then cwd-relative fallbacks.
+   */
+  static resolveFilePath(pythonFilePath: string): string {
+    const relativePath = this.extractRelativePath(pythonFilePath);
+
+    for (const basePath of this.getBasePaths()) {
       const fullPath = path.join(basePath, relativePath);
       if (fs.existsSync(fullPath)) {
         console.log(`File found at: ${fullPath}`);
@@ -85,13 +70,12 @@ export class PathResolver {
       }
     }
 
-    // If no file found among base paths, return the original or a best guess
     console.log(`File not found in any base path: ${pythonFilePath}`);
     return pythonFilePath;
   }
 
   /**
-   * Checks if a file exists at the resolved path
+   * Checks if a file exists at the resolved path.
    */
   static fileExists(pythonFilePath: string): boolean {
     const resolvedPath = this.resolveFilePath(pythonFilePath);
@@ -99,68 +83,31 @@ export class PathResolver {
   }
 
   /**
-   * Gets file stats for the resolved path
+   * Gets file stats for the resolved path.
    */
   static getFileStats(pythonFilePath: string): fs.Stats | null {
     const resolvedPath = this.resolveFilePath(pythonFilePath);
     try {
       return fs.statSync(resolvedPath);
-    } catch (error) {
+    } catch {
       return null;
     }
   }
 
   /**
-   * Lists all possible file locations for debugging
+   * Lists all checked paths for debugging. Call this when a file is not resolving correctly.
    */
   static debugFilePath(pythonFilePath: string): void {
+    const relativePath = this.extractRelativePath(pythonFilePath);
     console.log(`\n=== Debugging File Path ===`);
-    console.log(`Original path from Python: ${pythonFilePath}`);
-
-    let relativePath = pythonFilePath;
-    if (pythonFilePath.startsWith("/python/uploads/")) {
-      relativePath = pythonFilePath.replace("/python/uploads/", "");
-    } else if (pythonFilePath.startsWith("uploads/")) {
-      relativePath = pythonFilePath.replace("uploads/", "");
-    } else if (pythonFilePath.includes("uploads/")) {
-      const parts = pythonFilePath.split("uploads/");
-      relativePath = parts[parts.length - 1];
-    }
-
-    console.log(`Identified relative path: ${relativePath}`);
-
-    const possibleBasePaths = [
-      path.join(process.cwd(), "uploads"),
-      path.join(process.cwd(), "..", "hrms", "backend", "uploads"),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms",
-        "backend",
-        "uploads",
-      ),
-      path.join(
-        "C:",
-        "Users",
-        "HarshBajani",
-        "OneDrive - TransForm Solutions (P) Limited",
-        "Desktop",
-        "hrms-backup",
-        "uploads",
-      ),
-      "/root/tfshrms/hrms-backend/uploads",
-    ];
-
-    console.log(`Checking possible base paths:`);
-    possibleBasePaths.forEach((basePath, index) => {
+    console.log(`Original:  ${pythonFilePath}`);
+    console.log(`Relative:  ${relativePath}`);
+    console.log(`UPLOADS_DIR env: ${UPLOADS_DIR || "(not set)"}`);
+    console.log(`Checking base paths:`);
+    this.getBasePaths().forEach((basePath, index) => {
       const fullPath = path.join(basePath, relativePath);
       const exists = fs.existsSync(fullPath);
-      console.log(
-        `  ${index + 1}. ${basePath} -> ${fullPath} (${exists ? "EXISTS" : "NOT FOUND"})`,
-      );
+      console.log(`  ${index + 1}. [${exists ? "FOUND" : "    "}] ${fullPath}`);
     });
     console.log(`========================\n`);
   }
