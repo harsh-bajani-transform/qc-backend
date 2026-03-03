@@ -251,43 +251,49 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       qcId = (result as any).insertId;
     }
 
-    // Handle Rework Logic
-    if (status === "Rework") {
-      // 1. Delete associated tracker_records to reset duplicate check for this agent's submission
+    // Handle Rework & Correction Logic
+    if (status === "Rework" || status === "Correction") {
+      // 1. Delete associated tracker_records scoped to this specific file only
       const deleteTrackerRecordsSql = `
         DELETE FROM tracker_records 
-        WHERE user_id = ? AND project_id = ? AND task_id = ?
+        WHERE user_id = ? AND project_id = ? AND task_id = ? AND file_path = ?
       `;
       await connection.execute(deleteTrackerRecordsSql, [
         agent_user_id,
         project_id,
         task_id,
+        file_path,
       ]);
       console.log(
-        `Reset duplicate check: Deleted tracker_records for agent ${agent_user_id}, project ${project_id}, task ${task_id}`,
+        `Reset duplicate check: Deleted tracker_records for agent ${agent_user_id}, project ${project_id}, task ${task_id}, file: ${file_path} (Status: ${status})`,
       );
 
-      // 2. Handle Rework Tracker Entry
-      const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
-      const [reworkRows]: any = await connection.execute(checkReworkSql, [
-        qcId,
-      ]);
+      // 2. Only Handle Rework Tracker Entry for "Rework" status
+      if (status === "Rework") {
+        const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
+        const [reworkRows]: any = await connection.execute(checkReworkSql, [
+          qcId,
+        ]);
 
-      let nextReworkCount = 1;
-      if (reworkRows.length > 0) {
-        nextReworkCount = reworkRows[0].rework_count + 1;
+        let nextReworkCount = 1;
+        if (reworkRows.length > 0) {
+          nextReworkCount = reworkRows[0].rework_count + 1;
+        }
+
+        const insertReworkSql = `
+          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count)
+          VALUES (?, ?, ?, ?)
+        `;
+        await connection.execute(insertReworkSql, [
+          qcId,
+          agent_user_id,
+          file_path,
+          nextReworkCount,
+        ]);
+        console.log(
+          `Rework tracked: QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
+        );
       }
-
-      const insertReworkSql = `
-        INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count)
-        VALUES (?, ?, ?, ?)
-      `;
-      await connection.execute(insertReworkSql, [
-        qcId,
-        agent_user_id,
-        file_path,
-        nextReworkCount,
-      ]);
     }
 
     await connection.commit();
