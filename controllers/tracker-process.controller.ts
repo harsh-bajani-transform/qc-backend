@@ -44,7 +44,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
       const projectId = Number((mreq.body as any)?.project_id);
       const taskId = Number((mreq.body as any)?.task_id);
       const userId = Number((mreq.body as any)?.user_id);
-      const validateOnly = (mreq.body as any)?.validate_only === 'true';
+      const filePath: string | null = (mreq.body as any)?.file_path || null;
+      const validateOnly = (mreq.body as any)?.validate_only === "true";
 
       if (!projectId || !taskId || !userId) {
         return res.status(400).json({
@@ -96,9 +97,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           rowNumber: number;
           hashValue: string;
           record: any;
-          duplicateType: 'within-file' | 'database';
+          duplicateType: "within-file" | "database";
         }[] = [];
-        
+
         let allRowHashes: {
           rowNumber: number;
           hashValue: string;
@@ -156,7 +157,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                 rowNumber,
                 hashValue,
                 record,
-                duplicateType: 'within-file'
+                duplicateType: "within-file",
               });
               duplicatesSkipped++;
               continue;
@@ -189,7 +190,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                 rowNumber,
                 hashValue,
                 record,
-                duplicateType: 'database'
+                duplicateType: "database",
               });
               duplicatesSkipped++;
               continue;
@@ -198,21 +199,25 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
           // If any duplicates found, reject the entire file
           if (duplicatesFound.length > 0) {
-            const withinFileDuplicates = duplicatesFound.filter(d => d.duplicateType === 'within-file');
-            const databaseDuplicates = duplicatesFound.filter(d => d.duplicateType === 'database');
-            
+            const withinFileDuplicates = duplicatesFound.filter(
+              (d) => d.duplicateType === "within-file",
+            );
+            const databaseDuplicates = duplicatesFound.filter(
+              (d) => d.duplicateType === "database",
+            );
+
             let errorMessage = `File upload rejected: Found ${duplicatesFound.length} duplicate records.`;
-            
+
             if (withinFileDuplicates.length > 0) {
-              errorMessage += ` ${withinFileDuplicates.length} duplicates within the file (rows: ${withinFileDuplicates.map(d => d.rowNumber).join(', ')}).`;
+              errorMessage += ` ${withinFileDuplicates.length} duplicates within the file (rows: ${withinFileDuplicates.map((d) => d.rowNumber).join(", ")}).`;
             }
-            
+
             if (databaseDuplicates.length > 0) {
-              errorMessage += ` ${databaseDuplicates.length} duplicates already exist in database (rows: ${databaseDuplicates.map(d => d.rowNumber).join(', ')}).`;
+              errorMessage += ` ${databaseDuplicates.length} duplicates already exist in database (rows: ${databaseDuplicates.map((d) => d.rowNumber).join(", ")}).`;
             }
-            
-            errorMessage += ' Please remove duplicates and upload again.';
-            
+
+            errorMessage += " Please remove duplicates and upload again.";
+
             return res.status(400).json({
               success: false,
               message: errorMessage,
@@ -220,13 +225,13 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                 duplicatesFound: duplicatesFound.length,
                 withinFileDuplicates: withinFileDuplicates.length,
                 databaseDuplicates: databaseDuplicates.length,
-                duplicateDetails: duplicatesFound.map(d => ({
+                duplicateDetails: duplicatesFound.map((d) => ({
                   row: d.rowNumber,
                   type: d.duplicateType,
                   hash: d.hashValue,
-                  record: d.record
-                }))
-              }
+                  record: d.record,
+                })),
+              },
             });
           }
 
@@ -235,8 +240,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
             for (const { hashValue, record } of allRowHashes) {
               await connection.execute(
                 `INSERT INTO tracker_records 
-                 (user_id, project_id, task_id, record_data, hash_value, status) 
-                 VALUES (?, ?, ?, ?, ?, ?)`,
+                 (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 [
                   userId,
                   projectId,
@@ -244,6 +249,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                   JSON.stringify(record),
                   hashValue,
                   "ready",
+                  filePath,
                 ],
               );
 
@@ -254,15 +260,15 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
         return res.status(200).json({
           success: true,
-          message: validateOnly 
-            ? "File validation passed - no duplicates found" 
+          message: validateOnly
+            ? "File validation passed - no duplicates found"
             : "Excel processed successfully",
           data: {
             recordsInserted: validateOnly ? 0 : recordsInserted,
             duplicatesSkipped,
             validationMode: validateOnly,
             validRecords: allRowHashes.length,
-            readyForProcessing: validateOnly
+            readyForProcessing: validateOnly,
           },
         });
       } catch (error) {
@@ -581,8 +587,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     // Insert new record
                     await connection.execute(
                       `INSERT INTO tracker_records 
-                       (user_id, project_id, task_id, record_data, hash_value, status) 
-                       VALUES (?, ?, ?, ?, ?, ?)`,
+                       (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)`,
                       [
                         tracker.user_id,
                         tracker.project_id,
@@ -590,6 +596,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                         JSON.stringify(record),
                         hashValue,
                         "ready",
+                        tracker.file_path || null,
                       ],
                     );
 
