@@ -3,11 +3,8 @@ import { PORT } from "./config/env";
 import cors from "cors";
 import userRoutes from "./routes/user.routes";
 import trackerRoutes from "./routes/tracker.routes";
-import qcPerformanceRoutes from "./routes/qc-performance.routes";
 import qcEvaluationRoutes from "./routes/qc-evaluation.routes";
-import categoryRoutes from "./routes/category.routes";
 import qcScoringRoutes from "./routes/qc-scoring.routes";
-import qcEvaluationUpdatedRoutes from "./routes/qc-evaluation-updated.routes";
 import aiEvaluationRoutes from "./routes/ai-evaluation.routes";
 import geminiKeyRoutes from "./routes/gemini-key.routes";
 import qcRecordsRoutes from "./routes/qc-records.routes";
@@ -34,11 +31,8 @@ app.get("/api/v1/health", (req: Request, res: Response) => {
 
 app.use("/api/v1", userRoutes);
 app.use("/api/v1", trackerRoutes);
-app.use("/api/v1", qcPerformanceRoutes);
 app.use("/api/v1", qcEvaluationRoutes);
-app.use("/api/v1", categoryRoutes);
 app.use("/api/v1", qcScoringRoutes);
-app.use("/api/v1", qcEvaluationUpdatedRoutes);
 app.use("/api/v1", aiEvaluationRoutes);
 app.use("/api/v1", geminiKeyRoutes);
 app.use("/api/v1", qcRecordsRoutes);
