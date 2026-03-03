@@ -1,14 +1,27 @@
 import nodemailer from "nodemailer";
 
-import { EMAIL_USER, EMAIL_PASSWORD } from "./env";
+import {
+  SMTP_HOST,
+  SMTP_PORT,
+  SMTP_USER,
+  SMTP_PASS,
+  SMTP_FROM_NAME,
+} from "./env";
 
-export const accountEmail = EMAIL_USER;
+export const accountEmail = SMTP_USER;
+export const fromName = SMTP_FROM_NAME || "Transform Solution";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: SMTP_HOST,
+  port: Number(SMTP_PORT) || 587,
+  secure: false, // true for 465, false for other ports
   auth: {
-    user: accountEmail,
-    pass: EMAIL_PASSWORD,
+    user: SMTP_USER,
+    pass: SMTP_PASS,
+  },
+  tls: {
+    ciphers: "SSLv3",
+    rejectUnauthorized: false,
   },
 });
 

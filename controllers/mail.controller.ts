@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import transporter, { accountEmail } from "../config/nodemailer";
+import transporter, { accountEmail, fromName } from "../config/nodemailer";
 
 export const sendReworkEmail = async (req: Request, res: Response) => {
   const {
@@ -27,7 +27,7 @@ export const sendReworkEmail = async (req: Request, res: Response) => {
     const hasErrors = error_count > 0 || (error_list && error_list.length > 0);
 
     const mailOptions = {
-      from: accountEmail,
+      from: `"${fromName}" <${accountEmail}>`,
       to: agent_email,
       subject: subject || `QC Notification: ${status || "Update"}`,
       text: message || `QC review completed with status: ${status}`,
