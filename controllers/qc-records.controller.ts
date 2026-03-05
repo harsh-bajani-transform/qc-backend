@@ -522,11 +522,36 @@ export const deleteQCRecord = async (req: Request, res: Response) => {
 };
 
 export const getQCRecords = async (req: Request, res: Response) => {
+  const { logged_in_user_id } = req.query;
   const connection = await get_db_connection();
+
   try {
-    const [rows] = await connection.execute(
-      "SELECT * FROM qc_records ORDER BY timestamp DESC",
-    );
+    let sql = `
+      SELECT 
+        q.*,
+        a.user_name as agent_name,
+        qa.user_name as qa_name,
+        am.user_name as am_name,
+        p.project_name,
+        t.task_name
+      FROM qc_records q
+      LEFT JOIN tfs_user a ON q.agent_user_id = a.user_id
+      LEFT JOIN tfs_user qa ON q.qc_user_id = qa.user_id
+      LEFT JOIN tfs_user am ON q.ass_manager_id = am.user_id
+      LEFT JOIN project p ON q.project_id = p.project_id
+      LEFT JOIN task t ON q.task_id = t.task_id
+    `;
+
+    const queryParams: any[] = [];
+
+    if (logged_in_user_id) {
+      sql += ` WHERE q.agent_user_id = ?`;
+      queryParams.push(logged_in_user_id);
+    }
+
+    sql += ` ORDER BY q.timestamp DESC`;
+
+    const [rows] = await connection.execute(sql, queryParams);
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error("Error fetching QC records:", error);
