@@ -4,7 +4,6 @@ import path from "path";
 import ExcelJS from "exceljs";
 import axios from "axios";
 import get_db_connection from "../database/db";
-import PathResolver from "../utils/path-resolver";
 import { PYTHON_URL } from "../config/env";
 
 export const generateTenPercentSample = async (req: Request, res: Response) => {
@@ -57,23 +56,34 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Tracker or file not found" });
     }
-    const originalFilePath = PathResolver.resolveFilePath(tracker.tracker_file);
+    const originalFileUrl: string = tracker.tracker_file;
 
-    if (!fs.existsSync(originalFilePath)) {
+    if (!originalFileUrl) {
       return res.status(404).json({
         success: false,
-        message: `Original file not found: ${tracker.tracker_file}`,
+        message: `Tracker has no file attached`,
       });
     }
 
-    // 2. Read the Excel file
+    // 2. Fetch the file directly from Cloudinary URL into memory
+    console.log(`[QC Service] Fetching file from: ${originalFileUrl}`);
+    const fileResponse = await axios.get(originalFileUrl, {
+      responseType: "arraybuffer",
+    });
+    // fileResponse.data is a raw ArrayBuffer — use directly (ExcelJS.load expects ArrayBuffer)
+    const fileArrayBuffer: ArrayBuffer = fileResponse.data as ArrayBuffer;
+
+    // 3. Read the Excel file from the in-memory buffer
     const workbook = new ExcelJS.Workbook();
-    const ext = path.extname(originalFilePath).toLowerCase();
+    const ext = path.extname(new URL(originalFileUrl).pathname).toLowerCase();
 
     if (ext === ".xlsx") {
-      await workbook.xlsx.readFile(originalFilePath);
+      await workbook.xlsx.load(fileArrayBuffer);
     } else if (ext === ".csv") {
-      await workbook.csv.readFile(originalFilePath);
+      // ExcelJS CSV load requires a Readable stream; convert ArrayBuffer to Buffer first
+      const { Readable } = await import("stream");
+      const stream = Readable.from(Buffer.from(fileArrayBuffer));
+      await workbook.csv.read(stream);
     } else {
       return res
         .status(400)
@@ -130,25 +140,12 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
       sampleData.push(record);
     });
 
-    // 5. Save sample file
-    const uploadsDir = path.join(process.cwd(), "uploads", "qc_samples");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    const fileName = `sample_10pct_${tracker_id}_${Date.now()}.xlsx`;
-    const filePath = path.join(uploadsDir, fileName);
-    await sampleWorkbook.xlsx.writeFile(filePath);
-
-    // 6. Return response
-    const fileUrl = `/uploads/qc_samples/${fileName}`;
-
+    // 5. Build response (no longer saving file to disk)
     return res.status(200).json({
       success: true,
       data: {
         total_records: totalRows,
         sample_size: sampleSize,
-        sample_file_url: fileUrl,
         sample_data: sampleData, // Send all data, frontend will filter 3 columns
       },
     });
@@ -158,7 +155,143 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
       success: false,
       message: error instanceof Error ? error.message : "Internal server error",
     });
-  } finally {
+  }
+};
+
+export const downloadTenPercentSample = async (req: Request, res: Response) => {
+  const { tracker_id } = req.params;
+  const { logged_in_user_id } = req.query;
+
+  if (!tracker_id) {
+    return res
+      .status(400)
+      .json({ success: false, message: "tracker_id is required" });
+  }
+
+  try {
+    // 1. Fetch tracker details from Python backend
+    if (!PYTHON_URL) {
+      return res
+        .status(500)
+        .json({ success: false, message: "Python backend URL not configured" });
+    }
+
+    const pythonUrl = PYTHON_URL.endsWith("/")
+      ? `${PYTHON_URL}tracker/view`
+      : `${PYTHON_URL}/tracker/view`;
+
+    const pythonResponse = await axios.post(pythonUrl, {
+      tracker_id,
+      logged_in_user_id,
+    });
+
+    if (pythonResponse.status !== 200) {
+      return res.status(pythonResponse.status).json({
+        success: false,
+        message: "Failed to fetch tracker info from Python backend",
+      });
+    }
+
+    const trackers = pythonResponse.data?.data?.trackers || [];
+    const tracker = trackers.find((t: any) => t.tracker_id == tracker_id);
+
+    if (!tracker || !tracker.tracker_file) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Tracker or file not found" });
+    }
+    const originalFileUrl: string = tracker.tracker_file;
+
+    // 2. Stream the file directly from Cloudinary
+    const fileResponse = await axios.get(originalFileUrl, {
+      responseType: "arraybuffer",
+    });
+    const fileArrayBuffer: ArrayBuffer = fileResponse.data as ArrayBuffer;
+
+    // 3. Read the Excel file
+    const workbook = new ExcelJS.Workbook();
+    const ext = path.extname(new URL(originalFileUrl).pathname).toLowerCase();
+
+    if (ext === ".xlsx") {
+      await workbook.xlsx.load(fileArrayBuffer);
+    } else if (ext === ".csv") {
+      const { Readable } = await import("stream");
+      const stream = Readable.from(Buffer.from(fileArrayBuffer));
+      await workbook.csv.read(stream);
+    } else {
+      return res
+        .status(400)
+        .json({ success: false, message: `Unsupported file format: ${ext}` });
+    }
+
+    const worksheet = workbook.getWorksheet(1);
+    if (!worksheet) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Worksheet not found in file" });
+    }
+    const totalRows = worksheet.rowCount - 1;
+    const sampleSize = Math.ceil(totalRows * 0.1);
+
+    // 4. Randomly select 10% of rows
+    const rowIndices: number[] = [];
+    for (let i = 2; i <= worksheet.rowCount; i++) {
+      rowIndices.push(i);
+    }
+
+    // Shuffle and pick sampleSize
+    for (let i = rowIndices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rowIndices[i], rowIndices[j]] = [rowIndices[j], rowIndices[i]];
+    }
+    const selectedIndices = rowIndices.slice(0, sampleSize);
+    selectedIndices.sort((a, b) => a - b); // Keep original order for display
+
+    // 5. Create new workbook for sample
+    const sampleWorkbook = new ExcelJS.Workbook();
+    const sampleSheet = sampleWorkbook.addWorksheet("QC Sample 10%");
+
+    // Copy headers
+    const headers: any[] = [];
+    worksheet.getRow(1).eachCell((cell, colNumber) => {
+      headers[colNumber - 1] = cell.value;
+    });
+    sampleSheet.addRow(headers);
+
+    selectedIndices.forEach((idx) => {
+      const row = worksheet.getRow(idx);
+      const rowData: any[] = [];
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        rowData[colNumber - 1] = cell.value;
+      });
+      sampleSheet.addRow(rowData);
+    });
+
+    // 6. Stream directly to response
+    const urlPathname = new URL(originalFileUrl).pathname;
+    const baseName = path.basename(urlPathname, ext); // filename without extension
+    const downloadFileName = `${baseName}_10_percent_sample${ext}`;
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${downloadFileName}"`,
+    );
+
+    await sampleWorkbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error("Error downloading QC sample:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Internal server error",
+      });
+    }
   }
 };
 

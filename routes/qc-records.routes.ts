@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   generateTenPercentSample,
+  downloadTenPercentSample,
   saveQCRecord,
   getQCRecords,
   getQCRecordById,
@@ -11,6 +12,7 @@ import {
 const router = Router();
 
 router.post("/qc-records/generate-sample", generateTenPercentSample);
+router.get("/qc-records/download-sample/:tracker_id", downloadTenPercentSample);
 router.post("/qc-records/save", saveQCRecord);
 router.get("/qc-records/list", getQCRecords);
 router.get("/qc-records/view/:id", getQCRecordById);

@@ -38,13 +38,38 @@ export class PathResolver {
       path.join(process.cwd(), "..", "hrms-backup", "uploads", "tracker_files"),
     );
 
+    // VPS production fallback (Hostinger)
+    basePaths.push("/root/tfshrms/hrms-backend/uploads");
+    basePaths.push("/root/tfshrms/hrms-backend/uploads/tracker_files");
+
     return basePaths;
   }
 
   /**
-   * Strips known upload prefixes from a Python-style file path to get the relative filename.
+   * Strips known upload/download prefixes from a Python-style file path or full URL
+   * to get just the relative filename.
+   *
+   * Handles:
+   *  - Full HTTP URLs: http://host:port/downloads/tracker/file.xlsx  → file.xlsx
+   *  - /python/uploads/tracker_files/file.xlsx                       → tracker_files/file.xlsx
+   *  - uploads/tracker_files/file.xlsx                               → tracker_files/file.xlsx
+   *  - Plain filenames passed through unchanged
    */
   private static extractRelativePath(pythonFilePath: string): string {
+    // Strip full HTTP(S) URLs.
+    // The Python backend serves files via /downloads/tracker/ but stores them
+    // in uploads/tracker_files/ on disk. Since UPLOADS_DIR already points at
+    // the tracker_files directory, we only need the bare filename.
+    if (/^https?:\/\//i.test(pythonFilePath)) {
+      try {
+        const { pathname } = new URL(pythonFilePath);
+        return path.basename(pathname); // e.g. "Mfunds_...xlsx"
+      } catch {
+        // URL parse failed – fall through to string-based extraction
+        return path.basename(pythonFilePath);
+      }
+    }
+
     if (pythonFilePath.startsWith("/python/uploads/")) {
       return pythonFilePath.replace("/python/uploads/", "");
     }
