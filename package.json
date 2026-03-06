@@ -24,10 +24,12 @@
     "@types/cors": "^2.8.19",
     "@types/multer": "^2.0.0",
     "@types/nodemailer": "^7.0.4",
+    "@types/streamifier": "^0.1.2",
     "@types/xlsx": "^0.0.35",
     "ai": "^6.0.38",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dayjs": "^1.11.19",
@@ -39,6 +41,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",
     "nodemailer": "^7.0.12",
+    "streamifier": "^0.1.1",
     "xlsx": "^0.18.5",
     "zod": "^4.3.5"
   }

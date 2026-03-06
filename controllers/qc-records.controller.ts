@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import axios from "axios";
 import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
+import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
 
 export const generateTenPercentSample = async (req: Request, res: Response) => {
   const { tracker_id } = req.body;
@@ -90,7 +91,7 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
         .json({ success: false, message: `Unsupported file format: ${ext}` });
     }
 
-    const worksheet = workbook.getWorksheet(1);
+    const worksheet = workbook.worksheets[0];
     if (!worksheet) {
       return res
         .status(404)
@@ -224,7 +225,7 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
         .json({ success: false, message: `Unsupported file format: ${ext}` });
     }
 
-    const worksheet = workbook.getWorksheet(1);
+    const worksheet = workbook.worksheets[0];
     if (!worksheet) {
       return res
         .status(404)
@@ -314,9 +315,54 @@ export const saveQCRecord = async (req: Request, res: Response) => {
   } = req.body;
 
   const connection = await get_db_connection();
+  let tenPercentFilePath: string | null = null;
 
   try {
     await connection.beginTransaction();
+
+    // 1. Generate and Upload 10% Sample if records are provided
+    if (qc_file_records) {
+      try {
+        const sampleData =
+          typeof qc_file_records === "string"
+            ? JSON.parse(qc_file_records)
+            : qc_file_records;
+
+        if (Array.isArray(sampleData) && sampleData.length > 0) {
+          const sampleWorkbook = new ExcelJS.Workbook();
+          const sampleSheet = sampleWorkbook.addWorksheet("QC Sample 10%");
+
+          const headers = Object.keys(sampleData[0]);
+          sampleSheet.addRow(headers);
+
+          sampleData.forEach((record: any) => {
+            sampleSheet.addRow(headers.map((h) => record[h]));
+          });
+
+          const buffer = (await sampleWorkbook.xlsx.writeBuffer()) as any;
+          const fileName =
+            path.basename(
+              file_path || "sample",
+              path.extname(file_path || ".xlsx"),
+            ) +
+            "_10_sample_" +
+            Date.now() +
+            ".xlsx";
+
+          const uploadRes = await uploadBufferToCloudinary(
+            buffer,
+            "hrms/qc_samples",
+            fileName,
+          );
+          tenPercentFilePath = uploadRes.secure_url;
+          console.log(
+            `[QC Service] 10% Sample uploaded: ${tenPercentFilePath}`,
+          );
+        }
+      } catch (err) {
+        console.error("[QC Service] Failed to upload 10% sample:", err);
+      }
+    }
 
     // Check for existing record to support iterative rework (Score is final, records update)
     const checkExistingSql = `
@@ -336,14 +382,14 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     if (existingRows.length > 0) {
       qcId = existingRows[0].id;
       const updateSql = `
-        UPDATE qc_records SET 
+        UPDATE qc_records SET
           ass_manager_id = ?,
           qc_user_id = ?,
           status = ?,
           file_record_count = ?,
           \`10%_data_generated_count\` = ?,
-          \`10%_qc_file_records\` = ?,
-          error_list = ?
+          error_list = ?,
+          \`10%_file_path\` = ?
         WHERE id = ?
       `;
       await connection.execute(updateSql, [
@@ -352,17 +398,17 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         status,
         file_record_count,
         data_generated_count,
-        qc_file_records,
         JSON.stringify(error_list),
+        tenPercentFilePath,
         qcId,
       ]);
     } else {
       const insertSql = `
         INSERT INTO qc_records (
-          ass_manager_id, qc_user_id, agent_user_id, project_id, task_id, 
-          file_path, date_of_file_submission, qc_score, status, 
-          file_record_count, \`10%_data_generated_count\`, \`10%_qc_file_records\`, 
-          error_score, error_list
+          ass_manager_id, qc_user_id, agent_user_id, project_id, task_id,
+          file_path, date_of_file_submission, qc_score, status,
+          file_record_count, \`10%_data_generated_count\`,
+          error_score, error_list, \`10%_file_path\`
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const [result] = await connection.execute(insertSql, [
@@ -377,9 +423,9 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         status,
         file_record_count,
         data_generated_count,
-        qc_file_records,
         error_score,
         JSON.stringify(error_list),
+        tenPercentFilePath,
       ]);
       qcId = (result as any).insertId;
     }
