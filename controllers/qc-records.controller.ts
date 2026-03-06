@@ -6,6 +6,7 @@ import axios from "axios";
 import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
 import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
+import { sendQCEmailInternal } from "./mail.controller";
 
 export const generateTenPercentSample = async (req: Request, res: Response) => {
   const { tracker_id } = req.body;
@@ -297,12 +298,14 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
 };
 
 export const saveQCRecord = async (req: Request, res: Response) => {
+  console.log(`[QC Record] POST /save received. Body keys:`, Object.keys(req.body));
   const {
     ass_manager_id,
     qc_user_id,
     agent_user_id,
     project_id,
     task_id,
+    tracker_id,
     file_path,
     date_of_file_submission,
     qc_score,
@@ -430,6 +433,43 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       qcId = (result as any).insertId;
     }
 
+    // 4. Fetch Details for Email Notification (while connection is active)
+    let emailData: any = null;
+    try {
+      console.log(`[QC Service] Fetching email details for agent_id: ${agent_user_id}`);
+      const [agentRows]: any = await connection.execute(
+        "SELECT user_name, user_email FROM tfs_user WHERE user_id = ?",
+        [agent_user_id],
+      );
+      const [projectRows]: any = await connection.execute(
+        "SELECT project_name FROM project WHERE project_id = ?",
+        [project_id],
+      );
+      const [taskRows]: any = await connection.execute(
+        "SELECT task_name FROM task WHERE task_id = ?",
+        [task_id],
+      );
+      const [qaRows]: any = await connection.execute(
+        "SELECT user_name FROM tfs_user WHERE user_id = ?",
+        [qc_user_id],
+      );
+
+      if (agentRows.length > 0) {
+        emailData = {
+          agent_email: agentRows[0].user_email,
+          agent_name: agentRows[0].user_name,
+          project_name: projectRows[0]?.project_name || "N/A",
+          task_name: taskRows[0]?.task_name || "N/A",
+          qa_name: qaRows[0] ? qaRows[0].user_name : "QA Department",
+        };
+        console.log(`[QC Service] Email details fetched successfully for: ${emailData.agent_email}`);
+      } else {
+        console.warn(`[QC Service] No agent found with ID: ${agent_user_id}. Email will not be sent.`);
+      }
+    } catch (fetchErr) {
+      console.error("[QC Service] ERROR fetching email details:", fetchErr);
+    }
+
     // Handle Rework & Correction Logic
     if (status === "Rework" || status === "Correction") {
       // 1. Delete associated tracker_records scoped to this specific file only
@@ -477,6 +517,31 @@ export const saveQCRecord = async (req: Request, res: Response) => {
 
     await connection.commit();
 
+    // 5. Send Background Email (Async)
+    if (emailData) {
+      // Use date_of_file_submission from payload - the actual submission date the QC user entered
+      const submission_time = date_of_file_submission 
+        ? new Date(date_of_file_submission).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+        : "N/A";
+
+      // Send email asynchronously
+      sendQCEmailInternal({
+        agent_email: emailData.agent_email,
+        status,
+        project_name: emailData.project_name,
+        task_name: emailData.task_name,
+        qc_agent_name: emailData.qa_name,
+        qc_score,
+        error_count: error_list?.length || 0,
+        error_list,
+        comments: req.body.comments || "",
+        file_path, // Original file path
+        submission_time, // File submission date
+      }).catch((err) =>
+        console.error("[QC Service] Asynchronous email failed:", err),
+      );
+    }
+
     return res.status(200).json({
       success: true,
       message: "QC record saved successfully",
@@ -519,6 +584,7 @@ export const getQCRecordById = async (req: Request, res: Response) => {
 
 export const updateQCRecord = async (req: Request, res: Response) => {
   const { id } = req.params;
+  console.log(`[QC Record] PUT /update/${id} received.`);
   const { qc_score, status, error_score, error_list } = req.body;
 
   const connection = await get_db_connection();

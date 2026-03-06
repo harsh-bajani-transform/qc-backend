@@ -20,7 +20,6 @@ const transporter = nodemailer.createTransport({
     pass: SMTP_PASS,
   },
   tls: {
-    ciphers: "SSLv3",
     rejectUnauthorized: false,
   },
 });

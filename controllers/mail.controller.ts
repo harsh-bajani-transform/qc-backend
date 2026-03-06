@@ -3,38 +3,55 @@ import { Request, Response } from "express";
 import transporter, { accountEmail, fromName } from "../config/nodemailer";
 import { generateReworkEmailHtml } from "../constants/email-temp";
 
-export const sendReworkEmail = async (req: Request, res: Response) => {
-  const { agent_email, subject, message, status, ...templateData } = req.body;
+interface QCEmailOptions {
+  agent_email: string;
+  subject?: string;
+  message?: string;
+  status?: string;
+  [key: string]: any;
+}
+
+export const sendQCEmailInternal = async (options: QCEmailOptions) => {
+  const { agent_email, subject, message, status, ...templateData } = options;
+  console.log(`[Email Service] Starting email process for: ${agent_email}`);
 
   if (!agent_email) {
-    return res.status(400).json({
-      success: false,
-      message: "agent_email is required",
-    });
+    console.error(`[Email Service] FAILED: No agent email provided`);
+    throw new Error("agent_email is required");
   }
 
-  try {
-    const mailOptions = {
-      from: `"${fromName}" <${accountEmail}>`,
-      to: agent_email,
-      subject: subject || `QC Notification: ${status || "Update"}`,
-      text: message || `QC review completed with status: ${status}`,
-      // Use the extracted template function
-      html: generateReworkEmailHtml(templateData),
-    };
+  const mailOptions = {
+    from: `"${fromName}" <${accountEmail}>`,
+    to: agent_email,
+    subject: subject || `QC Notification: ${status || "Update"}`,
+    text: message || `QC review completed with status: ${status}`,
+    html: generateReworkEmailHtml({ status, ...templateData, message }),
+  };
 
-    await transporter.sendMail(mailOptions);
+  try {
+    console.log(`[Email Service] Sending mail via SMTP...`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email Service] SUCCESS: Email sent to ${agent_email}. MessageID: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`[Email Service] FAILED to send email to ${agent_email}:`, error);
+    throw error;
+  }
+};
+
+export const sendReworkEmail = async (req: Request, res: Response) => {
+  try {
+    await sendQCEmailInternal(req.body);
 
     return res.status(200).json({
       success: true,
       message: "Email sent successfully to agent",
     });
   } catch (error) {
-    console.error("Error sending rework email:", error);
-    return res.status(500).json({
+    console.error("Error sending QC email:", error);
+    return res.status(error instanceof Error && error.message.includes("required") ? 400 : 500).json({
       success: false,
-      message: "Failed to send email. Please check server configuration.",
-      error: error instanceof Error ? error.message : "Internal server error",
+      message: error instanceof Error ? error.message : "Failed to send email",
     });
   }
 };
