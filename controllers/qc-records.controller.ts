@@ -516,6 +516,17 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       }
     }
 
+    // 4. Update qc_status in task_work_tracker
+    if (tracker_id) {
+      const updateTrackerStatusSql = `
+        UPDATE task_work_tracker 
+        SET qc_status = 1 
+        WHERE tracker_id = ?
+      `;
+      await connection.execute(updateTrackerStatusSql, [tracker_id]);
+      console.log(`[QC Service] Updated qc_status to 1 for tracker_id: ${tracker_id}`);
+    }
+
     await connection.commit();
 
     // 5. Send Background Email (Async)
