@@ -12,7 +12,8 @@ interface QCEmailOptions {
 }
 
 export const sendQCEmailInternal = async (options: QCEmailOptions) => {
-  const { agent_email, subject, message, status, ...templateData } = options;
+  const { agent_email, subject, message, status, comments, ...templateData } = options;
+  const finalMessage = message || comments;
   console.log(`[Email Service] Starting email process for: ${agent_email}`);
 
   if (!agent_email) {
@@ -24,8 +25,8 @@ export const sendQCEmailInternal = async (options: QCEmailOptions) => {
     from: `"${fromName}" <${accountEmail}>`,
     to: agent_email,
     subject: subject || `QC Notification: ${status || "Update"}`,
-    text: message || `QC review completed with status: ${status}`,
-    html: generateReworkEmailHtml({ status, ...templateData, message }),
+    text: finalMessage || `QC review completed with status: ${status}`,
+    html: generateReworkEmailHtml({ status, ...templateData, message: finalMessage }),
   };
 
   try {
