@@ -574,10 +574,23 @@ export const getQCRecordById = async (req: Request, res: Response) => {
   const { id } = req.params;
   const connection = await get_db_connection();
   try {
-    const [rows]: any = await connection.execute(
-      "SELECT * FROM qc_records WHERE id = ?",
-      [id],
-    );
+    const sql = `
+      SELECT 
+        q.*,
+        a.user_name as agent_name,
+        qa.user_name as qa_name,
+        am.user_name as am_name,
+        p.project_name,
+        t.task_name
+      FROM qc_records q
+      LEFT JOIN tfs_user a ON q.agent_user_id = a.user_id
+      LEFT JOIN tfs_user qa ON q.qc_user_id = qa.user_id
+      LEFT JOIN tfs_user am ON q.ass_manager_id = am.user_id
+      LEFT JOIN project p ON q.project_id = p.project_id
+      LEFT JOIN task t ON q.task_id = t.task_id
+      WHERE q.id = ?
+    `;
+    const [rows]: any = await connection.execute(sql, [id]);
     if (rows.length === 0) {
       return res
         .status(404)
