@@ -501,14 +501,16 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         }
  
         const insertReworkSql = `
-          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id)
+          VALUES (?, ?, ?, ?, ?, ?)
         `;
         await connection.execute(insertReworkSql, [
           qcId,
           agent_user_id,
           file_path,
           nextReworkCount,
+          project_id,
+          task_id,
         ]);
         console.log(
           `Rework tracked: QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
