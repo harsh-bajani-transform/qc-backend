@@ -334,6 +334,16 @@ export const saveQCRecord = async (req: Request, res: Response) => {
   const connection = await get_db_connection();
   let tenPercentFilePath: string | null = null;
 
+  // Enhance date_of_file_submission to include current time if it only contains a date (e.g. "YYYY-MM-DD")
+  let formattedSubmissionDate = date_of_file_submission;
+  if (typeof formattedSubmissionDate === "string" && formattedSubmissionDate.trim().length <= 10) {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    formattedSubmissionDate = `${formattedSubmissionDate.trim()} ${hh}:${mm}:${ss}`;
+  }
+
   try {
     await connection.beginTransaction();
 
@@ -437,7 +447,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         project_id,
         task_id,
         file_path,
-        date_of_file_submission,
+        formattedSubmissionDate,
         qc_score,
         status,
         file_record_count,
@@ -505,8 +515,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         `Reset duplicate check: Deleted tracker_records for agent ${agent_user_id}, project ${project_id}, task ${task_id}, file: ${file_path} (Status: ${status})`,
       );
  
-      // 2. Only Handle Rework Tracker Entry for "rework" status
-      if (normalizedStatus === "rework") {
+      // 2. Only Handle Rework Tracker Entry for "rework" or "correction" status
+      if (normalizedStatus === "rework" || normalizedStatus === "correction") {
         const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
         const [reworkRows]: any = await connection.execute(checkReworkSql, [
           qcId,
