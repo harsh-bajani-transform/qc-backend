@@ -8,6 +8,20 @@ import { PYTHON_URL } from "../config/env";
 import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
 import { sendQCEmailInternal } from "./mail.controller";
 
+/**
+ * Sanitize tracker file URL — if the Python backend accidentally
+ * prefixes a local path before an absolute URL, extract the real URL.
+ * e.g. "/python/uploads/tracker_files/https://res.cloudinary.com/..."
+ *   => "https://res.cloudinary.com/..."
+ */
+function sanitizeFileUrl(raw: string): string {
+  const httpIdx = raw.indexOf("https://");
+  if (httpIdx > 0) return raw.substring(httpIdx);
+  const httpPlainIdx = raw.indexOf("http://");
+  if (httpPlainIdx > 0) return raw.substring(httpPlainIdx);
+  return raw;
+}
+
 export const generateTenPercentSample = async (req: Request, res: Response) => {
   const { tracker_id } = req.body;
 
@@ -58,7 +72,7 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Tracker or file not found" });
     }
-    const originalFileUrl: string = tracker.tracker_file;
+    const originalFileUrl: string = sanitizeFileUrl(tracker.tracker_file);
 
     if (!originalFileUrl) {
       return res.status(404).json({
@@ -202,7 +216,7 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Tracker or file not found" });
     }
-    const originalFileUrl: string = tracker.tracker_file;
+    const originalFileUrl: string = sanitizeFileUrl(tracker.tracker_file);
 
     // 2. Stream the file directly from Cloudinary
     const fileResponse = await axios.get(originalFileUrl, {
