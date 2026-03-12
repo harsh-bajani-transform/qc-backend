@@ -406,7 +406,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           file_record_count = ?,
           \`10%_data_generated_count\` = ?,
           error_list = ?,
-          \`10%_file_path\` = ?
+          \`10%_file_path\` = ?,
+          tracker_id = ?
         WHERE id = ?
       `;
       await connection.execute(updateSql, [
@@ -417,6 +418,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         data_generated_count,
         JSON.stringify(error_list),
         tenPercentFilePath,
+        tracker_id || null,
         qcId,
       ]);
     } else {
@@ -425,8 +427,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           ass_manager_id, qc_user_id, agent_user_id, project_id, task_id,
           file_path, date_of_file_submission, qc_score, status,
           file_record_count, \`10%_data_generated_count\`,
-          error_score, error_list, \`10%_file_path\`
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          error_score, error_list, \`10%_file_path\`, tracker_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const [result] = await connection.execute(insertSql, [
         ass_manager_id,
@@ -443,6 +445,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         error_score,
         JSON.stringify(error_list),
         tenPercentFilePath,
+        tracker_id || null,
       ]);
       qcId = (result as any).insertId;
     }
@@ -515,8 +518,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         }
  
         const insertReworkSql = `
-          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id, tracker_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
         await connection.execute(insertReworkSql, [
           qcId,
@@ -525,6 +528,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           nextReworkCount,
           project_id,
           task_id,
+          tracker_id || null,
         ]);
         console.log(
           `Rework tracked: QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
