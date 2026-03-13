@@ -112,14 +112,22 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Worksheet not found in file" });
     }
-    const totalRows = worksheet.rowCount - 1; // Exclude header
-    const sampleSize = Math.ceil(totalRows * 0.1);
-
-    // 3. Randomly select 10% of rows
     const rowIndices: number[] = [];
     for (let i = 2; i <= worksheet.rowCount; i++) {
-      rowIndices.push(i);
+      const row = worksheet.getRow(i);
+      let isEmpty = true;
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        if (cell.value !== null && cell.value !== undefined && cell.value !== "") {
+          isEmpty = false;
+        }
+      });
+      if (!isEmpty) {
+        rowIndices.push(i);
+      }
     }
+
+    const totalRows = rowIndices.length;
+    const sampleSize = Math.ceil(totalRows * 0.1);
 
     // Shuffle and pick sampleSize
     for (let i = rowIndices.length - 1; i > 0; i--) {
@@ -246,14 +254,22 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Worksheet not found in file" });
     }
-    const totalRows = worksheet.rowCount - 1;
-    const sampleSize = Math.ceil(totalRows * 0.1);
-
-    // 4. Randomly select 10% of rows
     const rowIndices: number[] = [];
     for (let i = 2; i <= worksheet.rowCount; i++) {
-      rowIndices.push(i);
+      const row = worksheet.getRow(i);
+      let isEmpty = true;
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        if (cell.value !== null && cell.value !== undefined && cell.value !== "") {
+          isEmpty = false;
+        }
+      });
+      if (!isEmpty) {
+        rowIndices.push(i);
+      }
     }
+
+    const totalRows = rowIndices.length;
+    const sampleSize = Math.ceil(totalRows * 0.1);
 
     // Shuffle and pick sampleSize
     for (let i = rowIndices.length - 1; i > 0; i--) {
