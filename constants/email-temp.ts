@@ -212,7 +212,7 @@ export const generateReworkEmailHtml = (data: ReworkEmailData): string => {
  
               <p style="margin:32px 0 0; color:#64748b; font-size: 14px;">
                 Best regards,<br />
-                <strong style="color: #1e293b;">Transform Solution Pvt. Ltd.</strong>
+                <strong style="color: #1e293b;">QA Team</strong>
               </p>
  
             </td>
@@ -224,7 +224,7 @@ export const generateReworkEmailHtml = (data: ReworkEmailData): string => {
               style="background-color:#f1f5f9; padding:24px; border-radius:0 0 12px 12px;
               color:#94a3b8; font-size:12px;">
               This is an automated notification from the TFS Quality Assurance System.<br>
-              © 2026 Transform Solution. All rights reserved.
+              © 2026 TRANSFORM Solutions. All rights reserved.
             </td>
           </tr>
  

@@ -9,7 +9,7 @@ import {
 } from "./env";
 
 export const accountEmail = SMTP_USER;
-export const fromName = SMTP_FROM_NAME || "Transform Solution";
+export const fromName = SMTP_FROM_NAME || "Transform Solutions";
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
