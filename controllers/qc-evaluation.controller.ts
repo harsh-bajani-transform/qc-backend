@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import userQueries from '../queries/user-queries';
 import qcQueries from '../queries/qc-queries';
 import AIService from '../config/ai';
-import { sampleRecords } from '../utils/qc-helpers';
+import { generateSystematicSample } from '../utils/qc-helpers';
 
 // Get all files available for QC evaluation
 export const getQCFilesForEvaluation = async (req: Request, res: Response) => {
@@ -288,7 +288,7 @@ export const getQCFileDetails = async (req: Request, res: Response) => {
 // Get QC evaluation data for a specific file
 export const getQCEvaluationData = async (req: Request, res: Response) => {
   try {
-    const { user_id, project_id } = req.body;
+    const { user_id, project_id, sampling_percentage } = req.body;
     
     if (!user_id || !project_id) {
       return res.status(400).json({
@@ -385,12 +385,13 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
         });
       }
 
+      const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
       const totalRecords = trackerRecords.length;
-      const sampleSize = Math.max(1, Math.ceil(totalRecords * 0.1)); // 10% sample
-      console.log(`Total records: ${totalRecords}, Sample size: ${sampleSize} (10%)`);
+      const sampleSize = Math.max(1, Math.ceil(totalRecords * (percentage / 100)));
+      console.log(`Total records: ${totalRecords}, Sample size: ${sampleSize} (${percentage}%)`);
 
       // Sample records using systematic random sampling
-      const sampledRecords = sampleRecords(trackerRecords, sampleSize);
+      const sampledRecords = generateSystematicSample(trackerRecords, sampleSize);
 
       // Parse record data and prepare for evaluation (SAMPLED records only)
       const evaluationData = sampledRecords.map((record: any) => ({
@@ -494,7 +495,7 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
           total_records: totalRecords,
           sampled_records: evaluationData,
           evaluation_criteria: evaluationCriteria,
-          sampling_percentage: 10,
+          sampling_percentage: percentage,
           sample_size: sampleSize,
           ai,
           ai_analysis,
@@ -502,7 +503,7 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
           access_control: {
             message: `Only accessing records from users with role_id < ${user.role_id}`,
             accessible_records: `${totalRecords} records from lower-level users`,
-            sampling_info: `Sampled ${sampleSize} records (${Math.round((sampleSize/totalRecords)*100)}%) for QC evaluation`
+            sampling_info: `Sampled ${sampleSize} records (${Math.round((sampleSize/totalRecords)*100)}%) for QC evaluation with ${percentage}% sampling request`
           }
         }
       });

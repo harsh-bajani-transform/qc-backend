@@ -22,8 +22,8 @@ function sanitizeFileUrl(raw: string): string {
   return raw;
 }
 
-export const generateTenPercentSample = async (req: Request, res: Response) => {
-  const { tracker_id } = req.body;
+export const generateCustomSample = async (req: Request, res: Response) => {
+  const { tracker_id, sampling_percentage } = req.body;
 
   if (!tracker_id) {
     return res
@@ -126,8 +126,9 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
       }
     }
 
+    const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
     const totalRows = rowIndices.length;
-    const sampleSize = Math.ceil(totalRows * 0.1);
+    const sampleSize = Math.ceil(totalRows * (percentage / 100));
 
     // Shuffle and pick sampleSize
     for (let i = rowIndices.length - 1; i > 0; i--) {
@@ -139,7 +140,7 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
 
     // 4. Create new workbook for sample
     const sampleWorkbook = new ExcelJS.Workbook();
-    const sampleSheet = sampleWorkbook.addWorksheet("QC Sample 10%");
+    const sampleSheet = sampleWorkbook.addWorksheet(`QC Sample ${percentage}%`);
 
     // Copy headers
     const headers: any[] = [];
@@ -169,6 +170,7 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
       success: true,
       data: {
         total_records: totalRows,
+        sampling_percentage: percentage,
         sample_size: sampleSize,
         sample_data: sampleData, // Send all data, frontend will filter 3 columns
       },
@@ -182,9 +184,9 @@ export const generateTenPercentSample = async (req: Request, res: Response) => {
   }
 };
 
-export const downloadTenPercentSample = async (req: Request, res: Response) => {
+export const downloadCustomSample = async (req: Request, res: Response) => {
   const { tracker_id } = req.params;
-  const { logged_in_user_id } = req.query;
+  const { logged_in_user_id, sampling_percentage } = req.query;
 
   if (!tracker_id) {
     return res
@@ -268,8 +270,9 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
       }
     }
 
+    const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
     const totalRows = rowIndices.length;
-    const sampleSize = Math.ceil(totalRows * 0.1);
+    const sampleSize = Math.ceil(totalRows * (percentage / 100));
 
     // Shuffle and pick sampleSize
     for (let i = rowIndices.length - 1; i > 0; i--) {
@@ -281,7 +284,7 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
 
     // 5. Create new workbook for sample
     const sampleWorkbook = new ExcelJS.Workbook();
-    const sampleSheet = sampleWorkbook.addWorksheet("QC Sample 10%");
+    const sampleSheet = sampleWorkbook.addWorksheet(`QC Sample ${percentage}%`);
 
     // Copy headers
     const headers: any[] = [];
@@ -302,7 +305,7 @@ export const downloadTenPercentSample = async (req: Request, res: Response) => {
     // 6. Stream directly to response
     const urlPathname = new URL(originalFileUrl).pathname;
     const baseName = path.basename(urlPathname, ext); // filename without extension
-    const downloadFileName = `${baseName}_10_percent_sample${ext}`;
+    const downloadFileName = `${baseName}_${percentage}_percent_sample${ext}`;
 
     res.setHeader(
       "Content-Type",

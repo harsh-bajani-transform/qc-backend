@@ -1,10 +1,10 @@
 /**
- * Sample records using systematic random sampling (10% or specified size)
+ * Sample records using systematic random sampling
  * @param records - Array of records to sample from
  * @param sampleSize - Number of records to sample
  * @returns Array of sampled records
  */
-export function sampleRecords(records: any[], sampleSize: number): any[] {
+export function generateSystematicSample(records: any[], sampleSize: number): any[] {
   if (records.length <= sampleSize) {
     return records;
   }
