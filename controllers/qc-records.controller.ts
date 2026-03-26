@@ -536,16 +536,25 @@ export const saveQCRecord = async (req: Request, res: Response) => {
  
       // 2. Only Handle Rework Tracker Entry for "rework" or "correction" status
       if (normalizedStatus === "rework" || normalizedStatus === "correction") {
-        const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
-        const [reworkRows]: any = await connection.execute(checkReworkSql, [
-          qcId,
-        ]);
- 
         let nextReworkCount = 1;
-        if (reworkRows.length > 0) {
-          nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
+        if (tracker_id) {
+          const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE tracker_id = ? ORDER BY rework_count DESC LIMIT 1`;
+          const [reworkRows]: any = await connection.execute(checkReworkSql, [
+            tracker_id,
+          ]);
+          if (reworkRows.length > 0) {
+            nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
+          }
+        } else {
+          const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
+          const [reworkRows]: any = await connection.execute(checkReworkSql, [
+            qcId,
+          ]);
+          if (reworkRows.length > 0) {
+            nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
+          }
         }
- 
+
         const insertReworkSql = `
           INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id, tracker_id)
           VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -560,7 +569,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           tracker_id || null,
         ]);
         console.log(
-          `Rework tracked: QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
+          `Rework tracked: Tracker ID ${tracker_id || "N/A"}, QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
         );
       }
     }
