@@ -6,13 +6,13 @@ import axios from "axios";
 import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
 import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
-import { sendQCEmailInternal } from "./mail.controller";
+import { sendQCEmailInternal } from './mail.controller';
 import {
   formatSubmissionDate,
   uploadSampleToCloudinary,
   getQCRecordEmailDetails,
-  handleQCStatusTransitions,
 } from "../utils/qc-helpers";
+import { QCWorkflowService } from '../services/qc-workflow.service';
 
 /**
  * Sanitize tracker file URL — if the Python backend accidentally
@@ -357,12 +357,11 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
 
   const connection = await get_db_connection();
   const formattedSubmissionDate = formatSubmissionDate(date_of_file_submission);
-  
-  // if status is regular, qc_status should be completed
-  const finalQCStatus = status === "regular" ? "completed" : (qc_status || null);
 
   try {
     await connection.beginTransaction();
+
+    let finalQCStatus = status === "regular" ? "completed" : (qc_status || null);
 
     // 1. Generate and Upload Sample if records are provided
     const qc_file_path = await uploadSampleToCloudinary(
@@ -371,17 +370,14 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       sampling_percentage || 10,
     );
 
-    // 2. Check for existing record to support iterative rework
+    // 2. Check for existing record to support iterative rework for the SAME tracker
     const checkExistingSql = `
-      SELECT id FROM qc_records 
-      WHERE agent_id = ? AND project_id = ? AND task_id = ? AND whole_file_path = ?
+      SELECT id, qc_status FROM qc_records 
+      WHERE tracker_id = ?
       LIMIT 1
     `;
     const [existingRows]: any = await connection.execute(checkExistingSql, [
-      agent_id,
-      project_id,
-      task_id,
-      whole_file_path,
+      tracker_id,
     ]);
 
     let qcId: number;
@@ -392,6 +388,7 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         UPDATE qc_records SET
           assistant_manager_id = ?,
           qa_user_id = ?,
+          qc_score = ?,
           status = ?,
           qc_status = ?,
           file_record_count = ?,
@@ -404,6 +401,7 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       await connection.execute(updateSql, [
         assistant_manager_id,
         qa_user_id,
+        qc_score,
         status,
         finalQCStatus,
         file_record_count,
@@ -451,17 +449,39 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       qa_user_id,
     );
 
-    // 4. Handle transitions like Rework/Correction
-    await handleQCStatusTransitions(
-      connection,
-      status,
-      agent_id,
-      project_id,
-      task_id,
-      whole_file_path,
-      tracker_id,
-      qcId,
-    );
+    // 4. Handle Specialized Workflows (Workflow Factory/Service)
+    if (status === "regular") {
+      finalQCStatus = await QCWorkflowService.handleRegularWorkflow(
+        connection,
+        qcId,
+        status,
+        existingRows.length > 0 ? existingRows[0].qc_status : null,
+        {
+          whole_file_path,
+          qc_file_path,
+          error_list
+        }
+      );
+    } else if (status === "correction") {
+      finalQCStatus = await QCWorkflowService.handleCorrectionWorkflow(
+        connection,
+        qcId,
+        status,
+        {
+          whole_file_path,
+          qc_file_path,
+          error_list
+        }
+      );
+    }
+
+    // Update the final status if it was changed by the workflow (e.g. from correction to completed)
+    if (finalQCStatus !== (status === "regular" ? "completed" : (qc_status || null))) {
+       await connection.execute(
+         "UPDATE qc_records SET qc_status = ? WHERE id = ?",
+         [finalQCStatus, qcId]
+       );
+    }
 
     // 5. Update qc_status in task_work_tracker
     if (tracker_id) {
@@ -496,9 +516,9 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         error_count: error_list?.length || 0,
         error_list,
         comments: req.body.comments || "",
-        file_path: whole_file_path,
+        file_path: qc_file_path,
         submission_time,
-      }).catch((err) =>
+      }).catch((err: any) =>
         console.error("[QC Service] Asynchronous email failed:", err),
       );
     }
