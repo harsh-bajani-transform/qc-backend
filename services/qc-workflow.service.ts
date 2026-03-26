@@ -19,6 +19,7 @@ export class QCWorkflowService {
       error_list: any[];
       file_record_count?: number;
       qc_generated_count?: number;
+      qc_score?: string | number;
     }
   ): Promise<string> {
     // If it was previously in correction, finalize history with the final record
@@ -104,6 +105,7 @@ export class QCWorkflowService {
       error_list: any[];
       file_record_count?: number;
       qc_generated_count?: number;
+      qc_score?: string | number;
     }
   ): Promise<string> {
     console.log(`[QC Workflow] Processing Rework Flow for QC ID: ${qcId}`);
@@ -134,8 +136,9 @@ export class QCWorkflowService {
         rework_status, 
         rework_error_list,
         file_record_count,
-        qc_data_generated_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        qc_data_generated_count,
+        rework_qc_score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await connection.execute(insertHistorySql, [
@@ -146,10 +149,11 @@ export class QCWorkflowService {
       historyStatus,
       JSON.stringify(data.error_list),
       data.file_record_count || 0,
-      data.qc_generated_count || 0
+      data.qc_generated_count || 0,
+      data.qc_score || "0.00"
     ]);
 
-    console.log(`[QC Workflow] Created rework history entry (Cycle ${nextCount}, Status: ${historyStatus})`);
+    console.log(`[QC Workflow] Created rework history entry (Cycle ${nextCount}, Status: ${historyStatus}, Score: ${data.qc_score})`);
 
     return recordQCStatus;
   }

@@ -475,6 +475,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           error_list,
           file_record_count,
           qc_generated_count: qc_generated_count,
+          qc_score: qc_score,
         },
       );
     } else if (status === "correction") {
@@ -499,6 +500,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           error_list,
           file_record_count,
           qc_generated_count: qc_generated_count,
+          qc_score: qc_score,
         },
       );
     }
