@@ -5,14 +5,13 @@ import ExcelJS from "exceljs";
 import axios from "axios";
 import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
-import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
-import { sendQCEmailInternal } from './mail.controller';
+import { sendQCEmailInternal } from "./mail.controller";
 import {
   formatSubmissionDate,
   uploadSampleToCloudinary,
   getQCRecordEmailDetails,
 } from "../utils/qc-helpers";
-import { QCWorkflowService } from '../services/qc-workflow.service';
+import { QCWorkflowService } from "../services/qc-workflow.service";
 
 /**
  * Sanitize tracker file URL — if the Python backend accidentally
@@ -123,7 +122,11 @@ export const generateCustomSample = async (req: Request, res: Response) => {
       const row = worksheet.getRow(i);
       let isEmpty = true;
       row.eachCell({ includeEmpty: false }, (cell) => {
-        if (cell.value !== null && cell.value !== undefined && cell.value !== "") {
+        if (
+          cell.value !== null &&
+          cell.value !== undefined &&
+          cell.value !== ""
+        ) {
           isEmpty = false;
         }
       });
@@ -267,7 +270,11 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       const row = worksheet.getRow(i);
       let isEmpty = true;
       row.eachCell({ includeEmpty: false }, (cell) => {
-        if (cell.value !== null && cell.value !== undefined && cell.value !== "") {
+        if (
+          cell.value !== null &&
+          cell.value !== undefined &&
+          cell.value !== ""
+        ) {
           isEmpty = false;
         }
       });
@@ -334,8 +341,13 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       });
     }
   }
-};export const saveQCRecord = async (req: Request, res: Response) => {
-  console.log(`[QC Record] POST /save received. Body keys:`, Object.keys(req.body));
+};
+
+export const saveQCRecord = async (req: Request, res: Response) => {
+  console.log(
+    `[QC Record] POST /save received. Body keys:`,
+    Object.keys(req.body),
+  );
   const {
     assistant_manager_id,
     qa_user_id,
@@ -361,7 +373,7 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
   try {
     await connection.beginTransaction();
 
-    let finalQCStatus = status === "regular" ? "completed" : (qc_status || null);
+    let finalQCStatus = status === "regular" ? "completed" : qc_status || null;
 
     // 1. Generate and Upload Sample if records are provided
     const qc_file_path = await uploadSampleToCloudinary(
@@ -395,7 +407,8 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
           qc_generated_count = ?,
           error_list = ?,
           qc_file_path = ?,
-          tracker_id = ?
+          tracker_id = ?,
+          updated_at = updated_at
         WHERE id = ?
       `;
       await connection.execute(updateSql, [
@@ -459,8 +472,10 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         {
           whole_file_path,
           qc_file_path,
-          error_list
-        }
+          error_list,
+          file_record_count,
+          qc_generated_count: qc_generated_count,
+        },
       );
     } else if (status === "correction") {
       finalQCStatus = await QCWorkflowService.handleCorrectionWorkflow(
@@ -470,17 +485,32 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         {
           whole_file_path,
           qc_file_path,
-          error_list
-        }
+          error_list,
+        },
+      );
+    } else if (status === "rework") {
+      finalQCStatus = await QCWorkflowService.handleReworkWorkflow(
+        connection,
+        qcId,
+        status,
+        {
+          whole_file_path,
+          qc_file_path,
+          error_list,
+          file_record_count,
+          qc_generated_count: qc_generated_count,
+        },
       );
     }
 
     // Update the final status if it was changed by the workflow (e.g. from correction to completed)
-    if (finalQCStatus !== (status === "regular" ? "completed" : (qc_status || null))) {
-       await connection.execute(
-         "UPDATE qc_records SET qc_status = ? WHERE id = ?",
-         [finalQCStatus, qcId]
-       );
+    if (
+      finalQCStatus !== (status === "regular" ? "completed" : qc_status || null)
+    ) {
+      await connection.execute(
+        "UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [finalQCStatus, qcId],
+      );
     }
 
     // 5. Update qc_status in task_work_tracker
@@ -491,7 +521,9 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         WHERE tracker_id = ?
       `;
       await connection.execute(updateTrackerStatusSql, [tracker_id]);
-      console.log(`[QC Service] Updated qc_status to 1 for tracker_id: ${tracker_id}`);
+      console.log(
+        `[QC Service] Updated qc_status to 1 for tracker_id: ${tracker_id}`,
+      );
     }
 
     await connection.commit();
@@ -516,7 +548,10 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
         error_count: error_list?.length || 0,
         error_list,
         comments: req.body.comments || "",
-        file_path: qc_file_path,
+        file_path:
+          status === "rework" || status === "rework"
+            ? whole_file_path
+            : qc_file_path,
         submission_time,
       }).catch((err: any) =>
         console.error("[QC Service] Asynchronous email failed:", err),
