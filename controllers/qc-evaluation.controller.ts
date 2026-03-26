@@ -385,7 +385,7 @@ export const getQCEvaluationData = async (req: Request, res: Response) => {
         });
       }
 
-      const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
+      const percentage = Number(sampling_percentage) || 10;
       const totalRecords = trackerRecords.length;
       const sampleSize = Math.max(1, Math.ceil(totalRecords * (percentage / 100)));
       console.log(`Total records: ${totalRecords}, Sample size: ${sampleSize} (${percentage}%)`);

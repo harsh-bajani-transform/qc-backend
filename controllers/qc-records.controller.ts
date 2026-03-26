@@ -7,6 +7,12 @@ import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
 import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
 import { sendQCEmailInternal } from "./mail.controller";
+import {
+  formatSubmissionDate,
+  uploadSampleToCloudinary,
+  getQCRecordEmailDetails,
+  handleQCStatusTransitions,
+} from "../utils/qc-helpers";
 
 /**
  * Sanitize tracker file URL — if the Python backend accidentally
@@ -126,7 +132,7 @@ export const generateCustomSample = async (req: Request, res: Response) => {
       }
     }
 
-    const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
+    const percentage = Number(sampling_percentage) || 10;
     const totalRows = rowIndices.length;
     const sampleSize = Math.ceil(totalRows * (percentage / 100));
 
@@ -270,7 +276,7 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       }
     }
 
-    const percentage = sampling_percentage !== undefined ? Number(sampling_percentage) : 10;
+    const percentage = Number(sampling_percentage) || 10;
     const totalRows = rowIndices.length;
     const sampleSize = Math.ceil(totalRows * (percentage / 100));
 
@@ -328,99 +334,54 @@ export const downloadCustomSample = async (req: Request, res: Response) => {
       });
     }
   }
-};
-
-export const saveQCRecord = async (req: Request, res: Response) => {
+};export const saveQCRecord = async (req: Request, res: Response) => {
   console.log(`[QC Record] POST /save received. Body keys:`, Object.keys(req.body));
   const {
-    ass_manager_id,
-    qc_user_id,
-    agent_user_id,
+    assistant_manager_id,
+    qa_user_id,
+    agent_id,
     project_id,
     task_id,
     tracker_id,
-    file_path,
+    whole_file_path,
     date_of_file_submission,
     qc_score,
     status,
+    qc_status,
     file_record_count,
-    data_generated_count,
+    qc_generated_count,
     qc_file_records,
-    error_score,
     error_list,
+    sampling_percentage,
   } = req.body;
 
   const connection = await get_db_connection();
-  let tenPercentFilePath: string | null = null;
-
-  // Enhance date_of_file_submission to include current time if it only contains a date (e.g. "YYYY-MM-DD")
-  let formattedSubmissionDate = date_of_file_submission;
-  if (typeof formattedSubmissionDate === "string" && formattedSubmissionDate.trim().length <= 10) {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
-    const ss = String(now.getSeconds()).padStart(2, "0");
-    formattedSubmissionDate = `${formattedSubmissionDate.trim()} ${hh}:${mm}:${ss}`;
-  }
+  const formattedSubmissionDate = formatSubmissionDate(date_of_file_submission);
+  
+  // if status is regular, qc_status should be completed
+  const finalQCStatus = status === "regular" ? "completed" : (qc_status || null);
 
   try {
     await connection.beginTransaction();
 
-    // 1. Generate and Upload 10% Sample if records are provided
-    if (qc_file_records) {
-      try {
-        const sampleData =
-          typeof qc_file_records === "string"
-            ? JSON.parse(qc_file_records)
-            : qc_file_records;
+    // 1. Generate and Upload Sample if records are provided
+    const qc_file_path = await uploadSampleToCloudinary(
+      qc_file_records,
+      whole_file_path,
+      sampling_percentage || 10,
+    );
 
-        if (Array.isArray(sampleData) && sampleData.length > 0) {
-          const sampleWorkbook = new ExcelJS.Workbook();
-          const sampleSheet = sampleWorkbook.addWorksheet("QC Sample 10%");
-
-          const headers = Object.keys(sampleData[0]);
-          sampleSheet.addRow(headers);
-
-          sampleData.forEach((record: any) => {
-            sampleSheet.addRow(headers.map((h) => record[h]));
-          });
-
-          const buffer = (await sampleWorkbook.xlsx.writeBuffer()) as any;
-          const fileName =
-            path.basename(
-              file_path || "sample",
-              path.extname(file_path || ".xlsx"),
-            ) +
-            "_10_sample_" +
-            Date.now() +
-            ".xlsx";
-
-          const uploadRes = await uploadBufferToCloudinary(
-            buffer,
-            "hrms/qc_samples",
-            fileName,
-          );
-          tenPercentFilePath = uploadRes.secure_url;
-          console.log(
-            `[QC Service] 10% Sample uploaded: ${tenPercentFilePath}`,
-          );
-        }
-      } catch (err) {
-        console.error("[QC Service] Failed to upload 10% sample:", err);
-      }
-    }
-
-    // Check for existing record to support iterative rework (Score is final, records update)
+    // 2. Check for existing record to support iterative rework
     const checkExistingSql = `
       SELECT id FROM qc_records 
-      WHERE agent_user_id = ? AND project_id = ? AND task_id = ? AND file_path = ?
+      WHERE agent_id = ? AND project_id = ? AND task_id = ? AND whole_file_path = ?
       LIMIT 1
     `;
     const [existingRows]: any = await connection.execute(checkExistingSql, [
-      agent_user_id,
+      agent_id,
       project_id,
       task_id,
-      file_path,
+      whole_file_path,
     ]);
 
     let qcId: number;
@@ -429,152 +390,80 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       qcId = existingRows[0].id;
       const updateSql = `
         UPDATE qc_records SET
-          ass_manager_id = ?,
-          qc_user_id = ?,
+          assistant_manager_id = ?,
+          qa_user_id = ?,
           status = ?,
+          qc_status = ?,
           file_record_count = ?,
-          \`10%_data_generated_count\` = ?,
+          qc_generated_count = ?,
           error_list = ?,
-          \`10%_file_path\` = ?,
+          qc_file_path = ?,
           tracker_id = ?
         WHERE id = ?
       `;
       await connection.execute(updateSql, [
-        ass_manager_id,
-        qc_user_id,
+        assistant_manager_id,
+        qa_user_id,
         status,
+        finalQCStatus,
         file_record_count,
-        data_generated_count,
+        qc_generated_count,
         JSON.stringify(error_list),
-        tenPercentFilePath,
+        qc_file_path,
         tracker_id || null,
         qcId,
       ]);
     } else {
       const insertSql = `
         INSERT INTO qc_records (
-          ass_manager_id, qc_user_id, agent_user_id, project_id, task_id,
-          file_path, date_of_file_submission, qc_score, status,
-          file_record_count, \`10%_data_generated_count\`,
-          error_score, error_list, \`10%_file_path\`, tracker_id
+          assistant_manager_id, qa_user_id, agent_id, project_id, task_id,
+          whole_file_path, date_of_file_submission, qc_score, status, qc_status,
+          file_record_count, qc_generated_count,
+          error_list, qc_file_path, tracker_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const [result] = await connection.execute(insertSql, [
-        ass_manager_id,
-        qc_user_id,
-        agent_user_id,
+        assistant_manager_id,
+        qa_user_id,
+        agent_id,
         project_id,
         task_id,
-        file_path,
+        whole_file_path,
         formattedSubmissionDate,
         qc_score,
         status,
+        finalQCStatus,
         file_record_count,
-        data_generated_count,
-        error_score,
+        qc_generated_count,
         JSON.stringify(error_list),
-        tenPercentFilePath,
+        qc_file_path,
         tracker_id || null,
       ]);
       qcId = (result as any).insertId;
     }
 
-    // 4. Fetch Details for Email Notification (while connection is active)
-    let emailData: any = null;
-    try {
-      console.log(`[QC Service] Fetching email details for agent_id: ${agent_user_id}`);
-      const [agentRows]: any = await connection.execute(
-        "SELECT user_name, user_email FROM tfs_user WHERE user_id = ?",
-        [agent_user_id],
-      );
-      const [projectRows]: any = await connection.execute(
-        "SELECT project_name FROM project WHERE project_id = ?",
-        [project_id],
-      );
-      const [taskRows]: any = await connection.execute(
-        "SELECT task_name FROM task WHERE task_id = ?",
-        [task_id],
-      );
-      const [qaRows]: any = await connection.execute(
-        "SELECT user_name FROM tfs_user WHERE user_id = ?",
-        [qc_user_id],
-      );
+    // 3. Fetch Details for Email Notification
+    const emailData = await getQCRecordEmailDetails(
+      connection,
+      agent_id,
+      project_id,
+      task_id,
+      qa_user_id,
+    );
 
-      if (agentRows.length > 0) {
-        emailData = {
-          agent_email: agentRows[0].user_email,
-          agent_name: agentRows[0].user_name,
-          project_name: projectRows[0]?.project_name || "N/A",
-          task_name: taskRows[0]?.task_name || "N/A",
-          qa_name: qaRows[0] ? qaRows[0].user_name : "QA Department",
-        };
-        console.log(`[QC Service] Email details fetched successfully for: ${emailData.agent_email}`);
-      } else {
-        console.warn(`[QC Service] No agent found with ID: ${agent_user_id}. Email will not be sent.`);
-      }
-    } catch (fetchErr) {
-      console.error("[QC Service] ERROR fetching email details:", fetchErr);
-    }
+    // 4. Handle transitions like Rework/Correction
+    await handleQCStatusTransitions(
+      connection,
+      status,
+      agent_id,
+      project_id,
+      task_id,
+      whole_file_path,
+      tracker_id,
+      qcId,
+    );
 
-    // Handle Rework & Correction Logic (Case-insensitive)
-    const normalizedStatus = (status || "").toLowerCase();
-    if (normalizedStatus === "rework" || normalizedStatus === "correction") {
-      // 1. Delete associated tracker_records scoped to this specific file only
-      const deleteTrackerRecordsSql = `
-        DELETE FROM tracker_records 
-        WHERE user_id = ? AND project_id = ? AND task_id = ? AND file_path = ?
-      `;
-      await connection.execute(deleteTrackerRecordsSql, [
-        agent_user_id,
-        project_id,
-        task_id,
-        file_path,
-      ]);
-      console.log(
-        `Reset duplicate check: Deleted tracker_records for agent ${agent_user_id}, project ${project_id}, task ${task_id}, file: ${file_path} (Status: ${status})`,
-      );
- 
-      // 2. Only Handle Rework Tracker Entry for "rework" or "correction" status
-      if (normalizedStatus === "rework" || normalizedStatus === "correction") {
-        let nextReworkCount = 1;
-        if (tracker_id) {
-          const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE tracker_id = ? ORDER BY rework_count DESC LIMIT 1`;
-          const [reworkRows]: any = await connection.execute(checkReworkSql, [
-            tracker_id,
-          ]);
-          if (reworkRows.length > 0) {
-            nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
-          }
-        } else {
-          const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
-          const [reworkRows]: any = await connection.execute(checkReworkSql, [
-            qcId,
-          ]);
-          if (reworkRows.length > 0) {
-            nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
-          }
-        }
-
-        const insertReworkSql = `
-          INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id, tracker_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `;
-        await connection.execute(insertReworkSql, [
-          qcId,
-          agent_user_id,
-          file_path,
-          nextReworkCount,
-          project_id,
-          task_id,
-          tracker_id || null,
-        ]);
-        console.log(
-          `Rework tracked: Tracker ID ${tracker_id || "N/A"}, QC ID ${qcId}, Agent ${agent_user_id}, Count ${nextReworkCount}`,
-        );
-      }
-    }
-
-    // 4. Update qc_status in task_work_tracker
+    // 5. Update qc_status in task_work_tracker
     if (tracker_id) {
       const updateTrackerStatusSql = `
         UPDATE task_work_tracker 
@@ -587,14 +476,16 @@ export const saveQCRecord = async (req: Request, res: Response) => {
 
     await connection.commit();
 
-    // 5. Send Background Email (Async)
+    // 6. Send Background Email (Async)
     if (emailData) {
-      // Use date_of_file_submission from payload - the actual submission date the QC user entered
-      const submission_time = date_of_file_submission 
-        ? new Date(date_of_file_submission).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+      const submission_time = date_of_file_submission
+        ? new Date(date_of_file_submission).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
         : "N/A";
 
-      // Send email asynchronously
       sendQCEmailInternal({
         agent_email: emailData.agent_email,
         status,
@@ -605,8 +496,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         error_count: error_list?.length || 0,
         error_list,
         comments: req.body.comments || "",
-        file_path, // Original file path
-        submission_time, // File submission date
+        file_path: whole_file_path,
+        submission_time,
       }).catch((err) =>
         console.error("[QC Service] Asynchronous email failed:", err),
       );
@@ -618,13 +509,13 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       data: { id: qcId },
     });
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback();
     console.error("Error saving QC record:", error);
     return res
       .status(500)
       .json({ success: false, message: "Internal server error" });
   } finally {
-    await connection.end();
+    if (connection) await connection.end();
   }
 };
 
@@ -641,9 +532,9 @@ export const getQCRecordById = async (req: Request, res: Response) => {
         p.project_name,
         t.task_name
       FROM qc_records q
-      LEFT JOIN tfs_user a ON q.agent_user_id = a.user_id
-      LEFT JOIN tfs_user qa ON q.qc_user_id = qa.user_id
-      LEFT JOIN tfs_user am ON q.ass_manager_id = am.user_id
+      LEFT JOIN tfs_user a ON q.agent_id = a.user_id
+      LEFT JOIN tfs_user qa ON q.qa_user_id = qa.user_id
+      LEFT JOIN tfs_user am ON q.assistant_manager_id = am.user_id
       LEFT JOIN project p ON q.project_id = p.project_id
       LEFT JOIN task t ON q.task_id = t.task_id
       WHERE q.id = ?
@@ -674,13 +565,12 @@ export const updateQCRecord = async (req: Request, res: Response) => {
   try {
     const sql = `
       UPDATE qc_records 
-      SET qc_score = ?, status = ?, error_score = ?, error_list = ?
+      SET qc_score = ?, status = ?, error_list = ?
       WHERE id = ?
     `;
     await connection.execute(sql, [
       qc_score,
       status,
-      error_score,
       JSON.stringify(error_list),
       id,
     ]);
@@ -730,9 +620,9 @@ export const getQCRecords = async (req: Request, res: Response) => {
         p.project_name,
         t.task_name
       FROM qc_records q
-      LEFT JOIN tfs_user a ON q.agent_user_id = a.user_id
-      LEFT JOIN tfs_user qa ON q.qc_user_id = qa.user_id
-      LEFT JOIN tfs_user am ON q.ass_manager_id = am.user_id
+      LEFT JOIN tfs_user a ON q.agent_id = a.user_id
+      LEFT JOIN tfs_user qa ON q.qa_user_id = qa.user_id
+      LEFT JOIN tfs_user am ON q.assistant_manager_id = am.user_id
       LEFT JOIN project p ON q.project_id = p.project_id
       LEFT JOIN task t ON q.task_id = t.task_id
     `;
@@ -740,11 +630,11 @@ export const getQCRecords = async (req: Request, res: Response) => {
     const queryParams: any[] = [];
 
     if (logged_in_user_id) {
-      sql += ` WHERE q.agent_user_id = ?`;
+      sql += ` WHERE q.agent_id = ?`;
       queryParams.push(logged_in_user_id);
     }
 
-    sql += ` ORDER BY q.timestamp DESC`;
+    sql += ` ORDER BY q.created_at DESC`;
 
     const [rows] = await connection.execute(sql, queryParams);
     return res.status(200).json({ success: true, data: rows });
