@@ -62,6 +62,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           [taskId, projectId],
         )) as [any[], any];
 
+        const [projectRows] = (await connection.execute(
+          "SELECT duplicate_check FROM project WHERE project_id = ?",
+          [projectId],
+        )) as [any[], any];
+        const duplicateCheckEnabled = !!projectRows?.[0]?.duplicate_check;
+
         let importantColumns: string[] = [];
         const rawImportant = taskRows?.[0]?.important_columns;
 
@@ -152,7 +158,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               .digest("hex");
 
             // Check for duplicates within the current file
-            if (currentSessionHashes.has(hashValue)) {
+            if (duplicateCheckEnabled && currentSessionHashes.has(hashValue)) {
               duplicatesFound.push({
                 rowNumber,
                 hashValue,
@@ -184,16 +190,18 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           }
 
           // Check for duplicates in database and collect them
-          for (const { rowNumber, hashValue, record } of rowHashes) {
-            if (existingHashes.has(hashValue)) {
-              duplicatesFound.push({
-                rowNumber,
-                hashValue,
-                record,
-                duplicateType: "database",
-              });
-              duplicatesSkipped++;
-              continue;
+          if (duplicateCheckEnabled) {
+            for (const { rowNumber, hashValue, record } of rowHashes) {
+              if (existingHashes.has(hashValue)) {
+                duplicatesFound.push({
+                  rowNumber,
+                  hashValue,
+                  record,
+                  duplicateType: "database",
+                });
+                duplicatesSkipped++;
+                continue;
+              }
             }
           }
 
@@ -371,10 +379,13 @@ export const processExcelFiles = async (req: Request, res: Response) => {
       let trackerDuplicatesFound = 0;
 
       try {
-        // Get task details including important_columns
-        console.log("Querying task table for ID:", tracker.task_id);
+        // Get task details including important_columns and project duplicate_check flag
+        console.log("Querying task and project table for task ID:", tracker.task_id);
         const [taskRows] = (await connection.execute(
-          "SELECT task_id, task_name, important_columns FROM task WHERE task_id = ?",
+          `SELECT t.task_id, t.task_name, t.important_columns, p.duplicate_check 
+           FROM task t 
+           JOIN project p ON t.project_id = p.project_id 
+           WHERE t.task_id = ?`,
           [tracker.task_id],
         )) as [any[], any];
 
@@ -387,10 +398,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
         const task = taskRows[0];
         console.log("Task found:", task);
+        const duplicateCheckEnabled = !!task.duplicate_check;
         const importantColumns = task.important_columns
           ? JSON.parse(task.important_columns)
           : [];
         console.log("Important columns parsed:", importantColumns);
+        console.log("Duplicate check enabled:", duplicateCheckEnabled);
 
         console.log(`Task: ${task.task_name}`);
         console.log(`Important columns: ${importantColumns.join(", ")}`);
@@ -543,7 +556,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                       .digest("hex");
 
                     // Check for duplicate in current session first
-                    if (currentSessionHashes.has(hashValue)) {
+                    if (duplicateCheckEnabled && currentSessionHashes.has(hashValue)) {
                       sheetDuplicatesSkipped++;
                       trackerDuplicatesFound++;
                       console.log(
@@ -572,7 +585,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
                   // Process records with batch results
                   for (const { rowNumber, hashValue, record } of rowHashes) {
-                    if (existingHashes.has(hashValue)) {
+                    if (duplicateCheckEnabled && existingHashes.has(hashValue)) {
                       sheetDuplicatesSkipped++;
                       trackerDuplicatesFound++;
                       console.log(
