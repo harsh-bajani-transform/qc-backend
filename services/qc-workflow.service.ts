@@ -2,10 +2,25 @@ import { Connection } from "mysql2/promise";
 
 /**
  * Service to handle specialized QC workflows for Correction, Rework, and Regular submissions.
+ *
+ * Lifecycle for Rework & Correction:
+ *  1. QA marks status → INSERT new history row (file_path = NULL, file_qc_status = NULL)
+ *  2. Agent uploads corrected file → same endpoint → UPDATE open row:
+ *       file_path = agent_file, file_qc_status = 'pending' (awaiting QA review)
+ *  3a. QA approves agent's file (status=regular) → UPDATE row:
+ *       file_qc_status = 'completed', qc_score = score, status = 'completed'
+ *       → qc_records.qc_status = 'completed'
+ *  3b. QA rejects agent's file (status=rework/correction again) → UPDATE row:
+ *       file_qc_status = 'completed', qc_score = score
+ *       → INSERT new row with count+1, file_path = NULL
+ *
+ * Open-row detection:
+ *  - rework_file_path IS NULL    → agent hasn't uploaded yet
+ *  - correction_file_path IS NULL → agent hasn't uploaded yet
  */
 export class QCWorkflowService {
   /**
-   * Handles the workflow for Regular submissions (100% Score).
+   * Handles the workflow for Regular submissions (100% Score / Approved).
    * Finalizes any open Correction or Rework cycles.
    */
   static async handleRegularWorkflow(
@@ -22,21 +37,23 @@ export class QCWorkflowService {
       qc_score?: string | number;
     }
   ): Promise<string> {
-    // If it was previously in correction, finalize history with the final record
     if (currentQCStatus === "correction") {
       await this.handleCorrectionWorkflow(connection, qcId, "regular", data);
-    } 
-    // If it was previously in rework, finalize history
-    else if (currentQCStatus === "rework") {
+    } else if (currentQCStatus === "rework") {
       await this.handleReworkWorkflow(connection, qcId, "regular", data);
     }
-    
     return "completed";
   }
 
   /**
    * Handles the iterative Correction lifecycle.
-   * Creates a new record in qc_correction_history for every cycle.
+   *
+   * - QA sends the SAMPLE file (qc_file_path) to the agent for correction.
+   * - Agent corrects and re-uploads (typically one cycle).
+   *
+   * New DB columns used:
+   *   correction_file_qc_status  VARCHAR(20):  NULL | 'pending' | 'completed'
+   *   correction_qc_score        DECIMAL(5,2): score set when QA closes the cycle
    */
   static async handleCorrectionWorkflow(
     connection: Connection,
@@ -46,54 +63,139 @@ export class QCWorkflowService {
       whole_file_path: string | null;
       qc_file_path: string | null;
       error_list: any[];
+      // Note: no qc_score — correction flow is status-only, no scoring
     }
   ): Promise<string> {
     console.log(`[QC Workflow] Processing Correction Flow for QC ID: ${qcId}`);
 
-    // 1. Get the latest correction count for this record
-    const [latestRows]: any = await connection.execute(
-      "SELECT correction_count FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1",
+    // ── PHASE CHECK: Is there an open row (agent hasn't uploaded yet)? ──────────
+    const [openRows]: any = await connection.execute(
+      `SELECT id, correction_count
+       FROM qc_correction_history
+       WHERE qc_record_id = ? AND correction_file_path IS NULL
+       ORDER BY correction_count DESC
+       LIMIT 1`,
       [qcId]
     );
 
-    const nextCount = latestRows.length > 0 ? (latestRows[0].correction_count || 0) + 1 : 1;
-    
-    // 2. Determine statuses
-    const historyStatus = submissionStatus === "regular" ? "completed" : "correction";
-    const recordQCStatus = submissionStatus === "regular" ? "completed" : "correction";
+    if (openRows.length > 0) {
+      // ── Agent is submitting their corrected file ──────────────────────────────
+      const openRow = openRows[0];
 
-    // 3. Insert NEW history record (Iterative approach)
-    // For Count 1, correction_file_path is NULL. For Count 2+, it's the agent's updated file.
-    const correctionFilePath = nextCount === 1 ? null : data.whole_file_path;
+      if (submissionStatus === "regular") {
+        // QA received agent's file and approved directly → mark completed (no score in correction)
+        await connection.execute(
+          `UPDATE qc_correction_history
+           SET correction_file_path      = ?,
+               correction_status         = 'completed',
+               correction_file_qc_status = 'completed'
+           WHERE id = ?`,
+          [data.whole_file_path, openRow.id]
+        );
+        console.log(
+          `[QC Workflow] Correction (Cycle ${openRow.correction_count}): Agent file received + approved.`
+        );
+        return "completed";
+      }
 
-    const insertHistorySql = `
-      INSERT INTO qc_correction_history (
-        qc_record_id, 
-        qc_file_path, 
-        correction_file_path, 
-        correction_count, 
-        correction_status, 
-        correction_error_list
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `;
+      // Agent uploaded, QA hasn't reviewed it yet → status = 'pending'
+      await connection.execute(
+        `UPDATE qc_correction_history
+         SET correction_file_path      = ?,
+             correction_status         = 'submitted',
+             correction_file_qc_status = 'pending'
+         WHERE id = ?`,
+        [data.whole_file_path, openRow.id]
+      );
+      console.log(
+        `[QC Workflow] Correction (Cycle ${openRow.correction_count}): Agent file received, QC pending`
+      );
+      return "correction";
+    }
 
-    await connection.execute(insertHistorySql, [
-      qcId,
-      data.qc_file_path,       // The sample file QA sent to agent
-      correctionFilePath,      // The file the agent submitted (NULL for first count)
-      nextCount,
-      historyStatus,
-      JSON.stringify(data.error_list)
-    ]);
+    // ── No open row: agent already uploaded (or hasn't started yet) ─────────────
+    if (submissionStatus === "regular") {
+      // QA is approving agent's file (the closed row is now being finalised)
+      const [latestRows]: any = await connection.execute(
+        `SELECT id, correction_count
+         FROM qc_correction_history
+         WHERE qc_record_id = ?
+         ORDER BY correction_count DESC
+         LIMIT 1`,
+        [qcId]
+      );
+      if (latestRows.length > 0) {
+        await connection.execute(
+          `UPDATE qc_correction_history
+           SET correction_status         = 'completed',
+               correction_file_qc_status = 'completed'
+           WHERE id = ?`,
+          [latestRows[0].id]
+        );
+        console.log(
+          `[QC Workflow] Correction (Cycle ${latestRows[0].correction_count}): Marked completed for QC ID ${qcId}`
+        );
+      } else {
+        console.log(`[QC Workflow] No correction history for QC ID ${qcId}. Nothing to finalise.`);
+      }
+      return "completed";
+    }
 
-    console.log(`[QC Workflow] Created correction history entry (Cycle ${nextCount}, Status: ${historyStatus})`);
+    // ── QA reviewed agent's file and is sending it back for another correction ──
+    // First close the previous cycle with the score, then open a new one.
+    const [latestRows]: any = await connection.execute(
+      `SELECT id, correction_count
+       FROM qc_correction_history
+       WHERE qc_record_id = ?
+       ORDER BY correction_count DESC
+       LIMIT 1`,
+      [qcId]
+    );
 
-    return recordQCStatus;
+    if (latestRows.length > 0) {
+      await connection.execute(
+        `UPDATE qc_correction_history
+         SET correction_file_qc_status = 'completed'
+         WHERE id = ?`,
+        [latestRows[0].id]
+      );
+      console.log(
+        `[QC Workflow] Correction (Cycle ${latestRows[0].correction_count}): QC done on agent file. Opening new cycle.`
+      );
+    }
+
+    const nextCount =
+      latestRows.length > 0 ? (latestRows[0].correction_count || 0) + 1 : 1;
+
+    await connection.execute(
+      `INSERT INTO qc_correction_history (
+         qc_record_id,
+         qc_file_path,
+         correction_file_path,
+         correction_count,
+         correction_status,
+         correction_error_list,
+         correction_file_qc_status,
+         correction_qc_score
+       ) VALUES (?, ?, NULL, ?, 'correction', ?, NULL, NULL)`,
+      [qcId, data.qc_file_path, nextCount, JSON.stringify(data.error_list)]
+    );
+
+    console.log(
+      `[QC Workflow] Correction (Cycle ${nextCount}): New cycle started. Awaiting agent's corrected file.`
+    );
+    return "correction";
   }
 
   /**
    * Handles the iterative Rework lifecycle.
-   * Creates a new record in qc_rework_history for every cycle.
+   *
+   * - QA sends the WHOLE file (whole_file_path) to the agent for rework.
+   * - Agent reworks and re-uploads; multiple cycles are possible.
+   *
+   * New DB column used:
+   *   rework_file_qc_status  VARCHAR(20):  NULL | 'pending' | 'completed'
+   *   rework_qc_score        already exists — now populated per cycle
    */
   static async handleReworkWorkflow(
     connection: Connection,
@@ -110,51 +212,133 @@ export class QCWorkflowService {
   ): Promise<string> {
     console.log(`[QC Workflow] Processing Rework Flow for QC ID: ${qcId}`);
 
-    // 1. Get the latest rework count
-    const [latestRows]: any = await connection.execute(
-      "SELECT rework_count FROM qc_rework_history WHERE qc_record_id = ? ORDER BY rework_count DESC LIMIT 1",
+    // ── PHASE CHECK: Is there an open row (agent hasn't uploaded yet)? ──────────
+    const [openRows]: any = await connection.execute(
+      `SELECT id, rework_count
+       FROM qc_rework_history
+       WHERE qc_record_id = ? AND rework_file_path IS NULL
+       ORDER BY rework_count DESC
+       LIMIT 1`,
       [qcId]
     );
 
-    const nextCount = latestRows.length > 0 ? (latestRows[0].rework_count || 0) + 1 : 1;
+    if (openRows.length > 0) {
+      // ── Agent is submitting their reworked file ───────────────────────────────
+      const openRow = openRows[0];
 
-    // 2. Determine statuses
-    const historyStatus = submissionStatus === "regular" ? "completed" : "rework";
-    const recordQCStatus = submissionStatus === "regular" ? "completed" : "rework";
+      if (submissionStatus === "regular") {
+        // QA received agent's file and approved directly → mark completed with score
+        await connection.execute(
+          `UPDATE qc_rework_history
+           SET rework_file_path      = ?,
+               rework_status         = 'completed',
+               rework_file_qc_status = 'completed',
+               rework_qc_score       = ?
+           WHERE id = ?`,
+          [data.whole_file_path, data.qc_score ?? null, openRow.id]
+        );
+        console.log(
+          `[QC Workflow] Rework (Cycle ${openRow.rework_count}): Agent file received + approved. Score: ${data.qc_score}`
+        );
+        return "completed";
+      }
 
-    // 3. Insert NEW history record (Iterative approach)
-    // For Rework: In Count 1, qc_file_path is the whole_file_path QA is returning.
-    // In Cycle 2+, rework_file_path is the agent's new whole_file_path.
-    const reworkFilePath = nextCount === 1 ? null : data.whole_file_path;
+      // Agent uploaded, QA hasn't reviewed yet → status = 'pending'
+      await connection.execute(
+        `UPDATE qc_rework_history
+         SET rework_file_path      = ?,
+             rework_status         = 'submitted',
+             rework_file_qc_status = 'pending'
+         WHERE id = ?`,
+        [data.whole_file_path, openRow.id]
+      );
+      console.log(
+        `[QC Workflow] Rework (Cycle ${openRow.rework_count}): Agent file received, QC pending`
+      );
+      return "rework";
+    }
 
-    const insertHistorySql = `
-      INSERT INTO qc_rework_history (
-        qc_record_id, 
-        qc_file_path, 
-        rework_file_path, 
-        rework_count, 
-        rework_status, 
-        rework_error_list,
-        file_record_count,
-        qc_data_generated_count,
-        rework_qc_score
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    // ── No open row: agent already uploaded (or hasn't started yet) ─────────────
+    if (submissionStatus === "regular") {
+      // QA is approving agent's file
+      const [latestRows]: any = await connection.execute(
+        `SELECT id, rework_count
+         FROM qc_rework_history
+         WHERE qc_record_id = ?
+         ORDER BY rework_count DESC
+         LIMIT 1`,
+        [qcId]
+      );
+      if (latestRows.length > 0) {
+        await connection.execute(
+          `UPDATE qc_rework_history
+           SET rework_status         = 'completed',
+               rework_file_qc_status = 'completed',
+               rework_qc_score       = ?
+           WHERE id = ?`,
+          [data.qc_score ?? null, latestRows[0].id]
+        );
+        console.log(
+          `[QC Workflow] Rework (Cycle ${latestRows[0].rework_count}): Marked completed. Score: ${data.qc_score}`
+        );
+      } else {
+        console.log(`[QC Workflow] No rework history for QC ID ${qcId}. Nothing to finalise.`);
+      }
+      return "completed";
+    }
 
-    await connection.execute(insertHistorySql, [
-      qcId,
-      data.whole_file_path,   // For Rework, we send the WHOLE file to the agent
-      reworkFilePath,         // NULL for first count, agent's new file for 2+
-      nextCount,
-      historyStatus,
-      JSON.stringify(data.error_list),
-      data.file_record_count || 0,
-      data.qc_generated_count || 0,
-      data.qc_score || "0.00"
-    ]);
+    // ── QA reviewed agent's file and is sending it back for rework again ────────
+    // First close the previous cycle with the score, then open a new one.
+    const [latestRows]: any = await connection.execute(
+      `SELECT id, rework_count
+       FROM qc_rework_history
+       WHERE qc_record_id = ?
+       ORDER BY rework_count DESC
+       LIMIT 1`,
+      [qcId]
+    );
 
-    console.log(`[QC Workflow] Created rework history entry (Cycle ${nextCount}, Status: ${historyStatus}, Score: ${data.qc_score})`);
+    if (latestRows.length > 0) {
+      await connection.execute(
+        `UPDATE qc_rework_history
+         SET rework_file_qc_status = 'completed'
+         WHERE id = ?`,
+        [latestRows[0].id]
+      );
+      console.log(
+        `[QC Workflow] Rework (Cycle ${latestRows[0].rework_count}): QC done on agent file. Opening new cycle.`
+      );
+    }
 
-    return recordQCStatus;
+    const nextCount =
+      latestRows.length > 0 ? (latestRows[0].rework_count || 0) + 1 : 1;
+
+    await connection.execute(
+      `INSERT INTO qc_rework_history (
+         qc_record_id,
+         qc_file_path,
+         rework_file_path,
+         rework_count,
+         rework_status,
+         rework_error_list,
+         file_record_count,
+         qc_data_generated_count,
+         rework_qc_score,
+         rework_file_qc_status
+       ) VALUES (?, ?, NULL, ?, 'rework', ?, ?, ?, NULL, NULL)`,
+      [
+        qcId,
+        data.whole_file_path,     // Whole file QA is sending to agent for rework
+        nextCount,
+        JSON.stringify(data.error_list),
+        data.file_record_count || 0,
+        data.qc_generated_count || 0,
+      ]
+    );
+
+    console.log(
+      `[QC Workflow] Rework (Cycle ${nextCount}): New cycle started. Awaiting agent's reworked file.`
+    );
+    return "rework";
   }
 }

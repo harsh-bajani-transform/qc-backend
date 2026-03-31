@@ -10,6 +10,7 @@ import {
   formatSubmissionDate,
   uploadSampleToCloudinary,
   getQCRecordEmailDetails,
+  handleQCStatusTransitions,
 } from "../utils/qc-helpers";
 import { QCWorkflowService } from "../services/qc-workflow.service";
 
@@ -400,6 +401,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         UPDATE qc_records SET
           assistant_manager_id = ?,
           qa_user_id = ?,
+          whole_file_path = ?,
           qc_score = ?,
           status = ?,
           qc_status = ?,
@@ -414,6 +416,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       await connection.execute(updateSql, [
         assistant_manager_id,
         qa_user_id,
+        whole_file_path,
         qc_score,
         status,
         finalQCStatus,
@@ -487,6 +490,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           whole_file_path,
           qc_file_path,
           error_list,
+          // no qc_score — correction is status-only
         },
       );
     } else if (status === "rework") {
@@ -502,6 +506,20 @@ export const saveQCRecord = async (req: Request, res: Response) => {
           qc_generated_count: qc_generated_count,
           qc_score: qc_score,
         },
+      );
+    }
+
+    // 4b. Run status-transition side-effects (tracker_records reset + legacy qc_rework_tracker insert)
+    if (status === "rework" || status === "correction") {
+      await handleQCStatusTransitions(
+        connection,
+        status,
+        agent_id,
+        project_id,
+        task_id,
+        whole_file_path,
+        tracker_id || null,
+        qcId,
       );
     }
 
@@ -551,7 +569,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         error_list,
         comments: req.body.comments || "",
         file_path:
-          status === "rework" || status === "rework"
+          status === "rework" || status === "correction"
             ? whole_file_path
             : qc_file_path,
         submission_time,
