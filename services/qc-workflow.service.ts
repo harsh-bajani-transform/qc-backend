@@ -114,15 +114,15 @@ export class QCWorkflowService {
            correction_count,
            correction_status,
            correction_error_list,
-           correction_file_qc_status,
-           correction_qc_score
-         ) VALUES (?, ?, NULL, ?, 'correction', NULL, NULL, NULL)`,
+           correction_file_qc_status
+         ) VALUES (?, ?, NULL, ?, 'correction', NULL, NULL)`,
         [
           qcId,
           data.qc_file_path, // For correction, we send the sample/marked file to agent
           nextCount,
         ]
       );
+
 
       console.log(
         `[QC Workflow] Correction (Cycle ${nextCount}): New placeholder started. Awaiting agent upload.`
