@@ -70,7 +70,7 @@ export class QCWorkflowService {
 
     // ── PHASE CHECK: Is there an open row (agent hasn't uploaded yet)? ──────────
     const [openRows]: any = await connection.execute(
-      `SELECT id, correction_count
+      `SELECT qc_correction_id, correction_count
        FROM qc_correction_history
        WHERE qc_record_id = ? AND correction_file_path IS NULL
        ORDER BY correction_count DESC
@@ -89,8 +89,8 @@ export class QCWorkflowService {
            SET correction_file_path      = ?,
                correction_status         = 'completed',
                correction_file_qc_status = 'completed'
-           WHERE id = ?`,
-          [data.whole_file_path, openRow.id]
+           WHERE qc_correction_id = ?`,
+          [data.whole_file_path, openRow.qc_correction_id]
         );
         console.log(
           `[QC Workflow] Correction (Cycle ${openRow.correction_count}): Agent file received + approved.`
@@ -104,8 +104,8 @@ export class QCWorkflowService {
          SET correction_file_path      = ?,
              correction_status         = 'submitted',
              correction_file_qc_status = 'pending'
-         WHERE id = ?`,
-        [data.whole_file_path, openRow.id]
+         WHERE qc_correction_id = ?`,
+        [data.whole_file_path, openRow.qc_correction_id]
       );
       console.log(
         `[QC Workflow] Correction (Cycle ${openRow.correction_count}): Agent file received, QC pending`
@@ -117,7 +117,7 @@ export class QCWorkflowService {
     if (submissionStatus === "regular") {
       // QA is approving agent's file (the closed row is now being finalised)
       const [latestRows]: any = await connection.execute(
-        `SELECT id, correction_count
+        `SELECT qc_correction_id, correction_count
          FROM qc_correction_history
          WHERE qc_record_id = ?
          ORDER BY correction_count DESC
@@ -129,8 +129,8 @@ export class QCWorkflowService {
           `UPDATE qc_correction_history
            SET correction_status         = 'completed',
                correction_file_qc_status = 'completed'
-           WHERE id = ?`,
-          [latestRows[0].id]
+           WHERE qc_correction_id = ?`,
+          [latestRows[0].qc_correction_id]
         );
         console.log(
           `[QC Workflow] Correction (Cycle ${latestRows[0].correction_count}): Marked completed for QC ID ${qcId}`
@@ -144,7 +144,7 @@ export class QCWorkflowService {
     // ── QA reviewed agent's file and is sending it back for another correction ──
     // First close the previous cycle with the score, then open a new one.
     const [latestRows]: any = await connection.execute(
-      `SELECT id, correction_count
+      `SELECT qc_correction_id, correction_count
        FROM qc_correction_history
        WHERE qc_record_id = ?
        ORDER BY correction_count DESC
@@ -156,8 +156,8 @@ export class QCWorkflowService {
       await connection.execute(
         `UPDATE qc_correction_history
          SET correction_file_qc_status = 'completed'
-         WHERE id = ?`,
-        [latestRows[0].id]
+         WHERE qc_correction_id = ?`,
+        [latestRows[0].qc_correction_id]
       );
       console.log(
         `[QC Workflow] Correction (Cycle ${latestRows[0].correction_count}): QC done on agent file. Opening new cycle.`
@@ -214,7 +214,7 @@ export class QCWorkflowService {
 
     // ── PHASE CHECK: Is there an open row (agent hasn't uploaded yet)? ──────────
     const [openRows]: any = await connection.execute(
-      `SELECT id, rework_count
+      `SELECT qc_rework_id, rework_count
        FROM qc_rework_history
        WHERE qc_record_id = ? AND rework_file_path IS NULL
        ORDER BY rework_count DESC
@@ -234,8 +234,8 @@ export class QCWorkflowService {
                rework_status         = 'completed',
                rework_file_qc_status = 'completed',
                rework_qc_score       = ?
-           WHERE id = ?`,
-          [data.whole_file_path, data.qc_score ?? null, openRow.id]
+           WHERE qc_rework_id = ?`,
+          [data.whole_file_path, data.qc_score ?? null, openRow.qc_rework_id]
         );
         console.log(
           `[QC Workflow] Rework (Cycle ${openRow.rework_count}): Agent file received + approved. Score: ${data.qc_score}`
@@ -249,8 +249,8 @@ export class QCWorkflowService {
          SET rework_file_path      = ?,
              rework_status         = 'submitted',
              rework_file_qc_status = 'pending'
-         WHERE id = ?`,
-        [data.whole_file_path, openRow.id]
+         WHERE qc_rework_id = ?`,
+        [data.whole_file_path, openRow.qc_rework_id]
       );
       console.log(
         `[QC Workflow] Rework (Cycle ${openRow.rework_count}): Agent file received, QC pending`
@@ -262,7 +262,7 @@ export class QCWorkflowService {
     if (submissionStatus === "regular") {
       // QA is approving agent's file
       const [latestRows]: any = await connection.execute(
-        `SELECT id, rework_count
+        `SELECT qc_rework_id, rework_count
          FROM qc_rework_history
          WHERE qc_record_id = ?
          ORDER BY rework_count DESC
@@ -275,8 +275,8 @@ export class QCWorkflowService {
            SET rework_status         = 'completed',
                rework_file_qc_status = 'completed',
                rework_qc_score       = ?
-           WHERE id = ?`,
-          [data.qc_score ?? null, latestRows[0].id]
+           WHERE qc_rework_id = ?`,
+          [data.qc_score ?? null, latestRows[0].qc_rework_id]
         );
         console.log(
           `[QC Workflow] Rework (Cycle ${latestRows[0].rework_count}): Marked completed. Score: ${data.qc_score}`
@@ -290,7 +290,7 @@ export class QCWorkflowService {
     // ── QA reviewed agent's file and is sending it back for rework again ────────
     // First close the previous cycle with the score, then open a new one.
     const [latestRows]: any = await connection.execute(
-      `SELECT id, rework_count
+      `SELECT qc_rework_id, rework_count
        FROM qc_rework_history
        WHERE qc_record_id = ?
        ORDER BY rework_count DESC
@@ -302,8 +302,8 @@ export class QCWorkflowService {
       await connection.execute(
         `UPDATE qc_rework_history
          SET rework_file_qc_status = 'completed'
-         WHERE id = ?`,
-        [latestRows[0].id]
+         WHERE qc_rework_id = ?`,
+        [latestRows[0].qc_rework_id]
       );
       console.log(
         `[QC Workflow] Rework (Cycle ${latestRows[0].rework_count}): QC done on agent file. Opening new cycle.`
