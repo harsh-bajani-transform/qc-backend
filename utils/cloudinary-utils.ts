@@ -6,15 +6,34 @@ import {
   CLOUDINARY_API_SECRET,
 } from "../config/env";
 
-cloudinary.config({
-  cloud_name: CLOUDINARY_CLOUD_NAME,
-  api_key: CLOUDINARY_API_KEY,
-  api_secret: CLOUDINARY_API_SECRET,
-});
+// Defensive Cloudinary initialization with re-check
+const initCloudinary = () => {
+  const cloud_name = CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME;
+  const api_key = CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY;
+  const api_secret = CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET;
 
-if (process.env.DEBUG === "true" || process.env.NODE_ENV === "development") {
-  console.log(`[Cloudinary] Initialization check: cloud_name=${CLOUDINARY_CLOUD_NAME}, api_key=${CLOUDINARY_API_KEY ? "Present" : "Missing"}`);
-}
+  cloudinary.config({
+    cloud_name,
+    api_key,
+    api_secret,
+  });
+
+  if (process.env.DEBUG === "true" || process.env.NODE_ENV === "development") {
+    console.log(
+      `[Cloudinary] Initialization check: cloud_name=${cloud_name}, api_key=${
+        api_key ? "Present" : "Missing"
+      }`
+    );
+    if (!api_key) {
+      console.warn(
+        "[Cloudinary] API Key is missing. Attempts to upload will fail."
+      );
+    }
+  }
+};
+
+initCloudinary();
+
 
 export const uploadBufferToCloudinary = (
   buffer: Buffer,
@@ -22,7 +41,13 @@ export const uploadBufferToCloudinary = (
   filename: string,
   resourceType: "auto" | "image" | "raw" | "video" = "raw",
 ): Promise<{ secure_url: string; public_id: string }> => {
+  // Last resort: make sure config is applied before calling the API
+  if (!cloudinary.config().api_key) {
+    initCloudinary();
+  }
+
   return new Promise((resolve, reject) => {
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,

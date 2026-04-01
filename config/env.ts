@@ -1,8 +1,12 @@
 import { config } from "dotenv";
 import path from "path";
 
-// Ensure we load .env from the project root and override any system variables
-config({ path: path.resolve(process.cwd(), ".env"), override: true });
+// Load .env relative to this file to handle different working directories
+const envPath = path.resolve(__dirname, "..", ".env");
+config({ path: envPath, override: true });
+
+console.log(`[Config] Attempting to load .env from: ${envPath}`);
+
 
 export const {
   PORT,
