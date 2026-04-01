@@ -24,7 +24,8 @@ export function formatSubmissionDate(date_of_file_submission: any): string {
 export async function uploadSampleToCloudinary(
   qc_file_records: any,
   whole_file_path: string | null,
-  percentage: number = 10
+  percentage: number = 10,
+  folderName: string = "hrms/qc_samples"
 ): Promise<string | null> {
   try {
     const sampleData = typeof qc_file_records === "string" ? JSON.parse(qc_file_records) : qc_file_records;
@@ -50,7 +51,7 @@ export async function uploadSampleToCloudinary(
         Date.now() +
         ".xlsx";
 
-      const uploadRes = await uploadBufferToCloudinary(buffer, "hrms/qc_samples", fileName);
+      const uploadRes = await uploadBufferToCloudinary(buffer, folderName, fileName);
       return uploadRes.secure_url;
     }
   } catch (err) {

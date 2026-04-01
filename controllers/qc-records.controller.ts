@@ -377,10 +377,12 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     let finalQCStatus = status === "regular" ? "completed" : qc_status || null;
 
     // 1. Generate and Upload Sample if records are provided
+    const folderName = status === "rework" ? "hrms/qc_rework_samples" : "hrms/qc_samples";
     const qc_file_path = await uploadSampleToCloudinary(
       qc_file_records,
       whole_file_path,
       sampling_percentage || 10,
+      folderName
     );
 
     // 2. Check for existing record to support iterative rework for the SAME tracker
