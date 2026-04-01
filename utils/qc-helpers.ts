@@ -132,39 +132,8 @@ export async function handleQCStatusTransitions(
   ]);
   console.log(`[QC Helper] Reset duplicate check: Deleted tracker_records for file: ${whole_file_path}`);
 
-  // 2. Handle Rework Tracker Entry (Legacy Table)
-  // Note: New History Tables will be implemented here in the next phase.
-  if (normalizedStatus === "rework" || normalizedStatus === "correction") {
-    let nextReworkCount = 1;
-    if (tracker_id) {
-      const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE tracker_id = ? ORDER BY rework_count DESC LIMIT 1`;
-      const [reworkRows]: any = await connection.execute(checkReworkSql, [tracker_id]);
-      if (reworkRows.length > 0) {
-        nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
-      }
-    } else {
-      const checkReworkSql = `SELECT rework_count FROM qc_rework_tracker WHERE qc_id = ? ORDER BY timestamp DESC LIMIT 1`;
-      const [reworkRows]: any = await connection.execute(checkReworkSql, [qcId]);
-      if (reworkRows.length > 0) {
-        nextReworkCount = (reworkRows[0].rework_count || 0) + 1;
-      }
-    }
-
-    const insertReworkSql = `
-      INSERT INTO qc_rework_tracker (qc_id, agent_id, file_path, rework_count, project_id, task_id, tracker_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    await connection.execute(insertReworkSql, [
-      qcId,
-      agent_id,
-      whole_file_path,
-      nextReworkCount,
-      project_id,
-      task_id,
-      tracker_id || null,
-    ]);
-    console.log(`[QC Helper] Rework tracked in legacy table for QC ID ${qcId}, Count ${nextReworkCount}`);
-  }
+  // 2. Handle Rework Tracker Entry (Side-effects for history are now handled in QCWorkflowService)
+  // No further legacy table updates needed.
 }
 
 /**

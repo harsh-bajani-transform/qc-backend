@@ -511,7 +511,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
       );
     }
 
-    // 4b. Run status-transition side-effects (tracker_records reset + legacy qc_rework_tracker insert)
+    // 4b. Run status-transition side-effects (tracker_records reset)
     if (status === "rework" || status === "correction") {
       await handleQCStatusTransitions(
         connection,
