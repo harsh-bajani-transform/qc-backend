@@ -1,6 +1,8 @@
 import { config } from "dotenv";
+import path from "path";
 
-config({ path: `.env` });
+// Ensure we load .env from the project root and override any system variables
+config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 export const {
   PORT,
@@ -24,3 +26,12 @@ export const {
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
 } = process.env;
+
+// Debug log for configuration validation
+if (NODE_ENV === "development" || process.env.DEBUG === "true") {
+  if (!CLOUDINARY_API_KEY) {
+    console.warn("[Config] WARNING: CLOUDINARY_API_KEY is not defined in .env");
+  } else {
+    console.log("[Config] Cloudinary credentials loaded successfully.");
+  }
+}

@@ -12,6 +12,10 @@ cloudinary.config({
   api_secret: CLOUDINARY_API_SECRET,
 });
 
+if (process.env.DEBUG === "true" || process.env.NODE_ENV === "development") {
+  console.log(`[Cloudinary] Initialization check: cloud_name=${CLOUDINARY_CLOUD_NAME}, api_key=${CLOUDINARY_API_KEY ? "Present" : "Missing"}`);
+}
+
 export const uploadBufferToCloudinary = (
   buffer: Buffer,
   folder: string,
