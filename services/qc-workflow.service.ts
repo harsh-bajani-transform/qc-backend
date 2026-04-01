@@ -343,4 +343,65 @@ export class QCWorkflowService {
     );
     return "rework";
   }
+
+  /**
+   * Records an agent's file upload for an existing Rework or Correction cycle.
+   * Updates the 'open' row (where file_path is NULL) with the new file URL.
+   */
+  static async recordAgentUpload(
+    connection: Connection,
+    qcId: number,
+    type: "rework" | "correction",
+    fileUrl: string
+  ): Promise<void> {
+    console.log(`[QC Workflow] Recording Agent Upload for QC ID: ${qcId}, Type: ${type}`);
+
+    if (type === "rework") {
+      // 1. Find the open rework row
+      const [openRows]: any = await connection.execute(
+        `SELECT qc_rework_id FROM qc_rework_history 
+         WHERE qc_record_id = ? AND rework_file_path IS NULL 
+         ORDER BY rework_count DESC LIMIT 1`,
+        [qcId]
+      );
+
+      if (openRows.length === 0) {
+        throw new Error("No open rework cycle found for this record.");
+      }
+
+      // 2. Update the row
+      await connection.execute(
+        `UPDATE qc_rework_history 
+         SET rework_file_path = ?, rework_status = 'submitted', rework_file_qc_status = 'pending'
+         WHERE qc_rework_id = ?`,
+        [fileUrl, openRows[0].qc_rework_id]
+      );
+    } else {
+      // 1. Find the open correction row
+      const [openRows]: any = await connection.execute(
+        `SELECT qc_correction_id FROM qc_correction_history 
+         WHERE qc_record_id = ? AND correction_file_path IS NULL 
+         ORDER BY correction_count DESC LIMIT 1`,
+        [qcId]
+      );
+
+      if (openRows.length === 0) {
+        throw new Error("No open correction cycle found for this record.");
+      }
+
+      // 2. Update the row
+      await connection.execute(
+        `UPDATE qc_correction_history 
+         SET correction_file_path = ?, correction_status = 'submitted', correction_file_qc_status = 'pending'
+         WHERE qc_correction_id = ?`,
+        [fileUrl, openRows[0].qc_correction_id]
+      );
+    }
+
+    // 3. Update the main record status to 'pending' so QA knows to review again
+    await connection.execute(
+      "UPDATE qc_records SET qc_status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [qcId]
+    );
+  }
 }

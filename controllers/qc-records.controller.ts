@@ -13,6 +13,7 @@ import {
   handleQCStatusTransitions,
 } from "../utils/qc-helpers";
 import { QCWorkflowService } from "../services/qc-workflow.service";
+import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
 
 /**
  * Sanitize tracker file URL — if the Python backend accidentally
@@ -724,3 +725,63 @@ export const getQCRecords = async (req: Request, res: Response) => {
     await connection.end();
   }
 };
+
+export const agentUploadCorrection = async (req: Request, res: Response) => {
+  const mreq = req as any;
+  const { qcId, type, logged_in_user_id } = mreq.body;
+
+  if (!mreq.file) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No file uploaded" });
+  }
+
+  if (!qcId || !type || !["rework", "correction"].includes(type)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid qcId or type" });
+  }
+
+  const folder =
+    type === "rework" ? "hrms/qc_rework_files" : "hrms/qc_correction_files";
+  const fileName = `fixed_${type}_${qcId}_${Date.now()}${path.extname(
+    mreq.file.originalname
+  )}`;
+
+  let connection;
+  try {
+    const uploadRes = await uploadBufferToCloudinary(
+      mreq.file.buffer,
+      folder,
+      fileName
+    );
+    const fileUrl = uploadRes.secure_url;
+
+    connection = await get_db_connection();
+    await connection.beginTransaction();
+
+    await QCWorkflowService.recordAgentUpload(
+      connection,
+      Number(qcId),
+      type as any,
+      fileUrl
+    );
+
+    await connection.commit();
+    return res.status(200).json({
+      success: true,
+      message: "File uploaded and status updated successfully",
+      data: { fileUrl },
+    });
+  } catch (error: any) {
+    if (connection) await connection.rollback();
+    console.error("Error in agentUploadCorrection:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  } finally {
+    if (connection) await connection.end();
+  }
+};
+
