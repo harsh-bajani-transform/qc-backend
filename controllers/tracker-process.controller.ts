@@ -261,11 +261,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           // Only proceed with insertion if no duplicates found AND not in validation mode
           if (!validateOnly) {
             for (const { hashValue, record } of allRowHashes) {
-              const [result] = await connection.execute(
-                `INSERT IGNORE INTO tracker_records 
+              // Using INSERT IGNORE to skip existing records if duplicate check is disabled
+              const insertQuery = `INSERT IGNORE INTO tracker_records /* VERIFIED_VERSION_2 */
                  (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
+                 
+              const [result] = await connection.execute(insertQuery, [
                   userId,
                   projectId,
                   taskId,
@@ -618,19 +619,19 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     // Add to current session hashes
                     currentSessionHashes.add(hashValue);
 
-                    // Insert new record
-                    const [result] = await connection.execute(
-                      `INSERT IGNORE INTO tracker_records 
+                    // Insert new record with IGNORE to skip existing ones
+                    const insertQuery = `INSERT IGNORE INTO tracker_records /* VERIFIED_VERSION_2_PATH2 */
                        (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                      [
+                       VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
+                    const [result] = await connection.execute(insertQuery, [
                         tracker.user_id,
                         tracker.project_id,
                         tracker.task_id,
                         JSON.stringify(record),
                         hashValue,
                         "ready",
-                        tracker.file_path || null,
+                        tracker.tracker_file || tracker.file_path || null,
                       ],
                     );
 
