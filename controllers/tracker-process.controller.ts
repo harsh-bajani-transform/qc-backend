@@ -66,7 +66,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           "SELECT duplicate_check FROM project WHERE project_id = ?",
           [projectId],
         )) as [any[], any];
-        const duplicateCheckEnabled = !!projectRows?.[0]?.duplicate_check;
+        const duplicateCheckEnabled = (mreq.body as any)?.duplicate_check !== undefined 
+          ? (String((mreq.body as any).duplicate_check) === "true")
+          : !!projectRows?.[0]?.duplicate_check;
 
         const originalName = mreq.file.originalname;
         const fileSize = mreq.file.size;
@@ -259,8 +261,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           // Only proceed with insertion if no duplicates found AND not in validation mode
           if (!validateOnly) {
             for (const { hashValue, record } of allRowHashes) {
-              await connection.execute(
-                `INSERT INTO tracker_records 
+              const [result] = await connection.execute(
+                `INSERT IGNORE INTO tracker_records 
                  (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 [
@@ -274,7 +276,11 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                 ],
               );
 
-              recordsInserted++;
+              if ((result as any).affectedRows > 0) {
+                recordsInserted++;
+              } else {
+                duplicatesSkipped++;
+              }
             }
           }
         }
@@ -411,7 +417,9 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
         const task = taskRows[0];
         console.log("Task found:", task);
-        const duplicateCheckEnabled = !!task.duplicate_check;
+        const duplicateCheckEnabled = reqBody.duplicate_check !== undefined 
+          ? (String(reqBody.duplicate_check) === "true")
+          : !!task.duplicate_check;
         const importantColumns = task.important_columns
           ? JSON.parse(task.important_columns)
           : [];
@@ -611,8 +619,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                     currentSessionHashes.add(hashValue);
 
                     // Insert new record
-                    await connection.execute(
-                      `INSERT INTO tracker_records 
+                    const [result] = await connection.execute(
+                      `INSERT IGNORE INTO tracker_records 
                        (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
                        VALUES (?, ?, ?, ?, ?, ?, ?)`,
                       [
@@ -626,9 +634,15 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                       ],
                     );
 
-                    sheetRecordsProcessed++;
-                    trackerRecordsProcessed++;
-                    console.log(`Inserted record from row ${rowNumber}`);
+                    if ((result as any).affectedRows > 0) {
+                      sheetRecordsProcessed++;
+                      trackerRecordsProcessed++;
+                      console.log(`Inserted record from row ${rowNumber}`);
+                    } else {
+                      sheetDuplicatesSkipped++;
+                      trackerDuplicatesFound++;
+                      console.log(`Duplicate found (row ${rowNumber}), skipped by DB`);
+                    }
                   }
 
                   totalRecordsProcessed += sheetRecordsProcessed;
