@@ -350,6 +350,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     `[QC Record] POST /save received. Body keys:`,
     Object.keys(req.body),
   );
+  console.log(`[QC Record] tracker_id value:`, req.body.tracker_id);
   const {
     assistant_manager_id,
     qa_user_id,
@@ -378,59 +379,102 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     let finalQCStatus = status === "regular" ? "completed" : qc_status || null;
 
     // 1. Generate and Upload Sample if records are provided
-    const folderName = status === "rework" ? "hrms/qc_rework_samples" : "hrms/qc_samples";
-    const qc_file_path = await uploadSampleToCloudinary(
-      qc_file_records,
-      whole_file_path,
-      sampling_percentage || 10,
-      folderName
-    );
+    let qc_file_path: string | null = null;
+    if (qc_file_records && whole_file_path) {
+      const folderName = status === "rework" ? "hrms/qc_rework_samples" : "hrms/qc_samples";
+      qc_file_path = await uploadSampleToCloudinary(
+        qc_file_records,
+        whole_file_path,
+        sampling_percentage || 10,
+        folderName
+      );
+    }
 
     // 2. Check for existing record to support iterative rework for the SAME tracker
+    console.log(`[QC Record] Checking for existing record with tracker_id: ${tracker_id}`);
     const checkExistingSql = `
       SELECT id, qc_status FROM qc_records 
       WHERE tracker_id = ?
       LIMIT 1
     `;
     const [existingRows]: any = await connection.execute(checkExistingSql, [
-      tracker_id,
+      tracker_id ?? null,
     ]);
+    console.log(`[QC Record] Found ${existingRows.length} existing record(s)`);
+    if (existingRows.length > 0) {
+      console.log(`[QC Record] Existing record details:`, existingRows[0]);
+    }
 
     let qcId: number;
 
     if (existingRows.length > 0) {
+      console.log(`[QC Record] UPDATING existing record with ID: ${existingRows[0].id}`);
       qcId = existingRows[0].id;
-      const updateSql = `
-        UPDATE qc_records SET
-          assistant_manager_id = ?,
-          qa_user_id = ?,
-          whole_file_path = ?,
-          qc_score = ?,
-          status = ?,
-          qc_status = ?,
-          file_record_count = ?,
-          qc_generated_count = ?,
-          error_list = ?,
-          qc_file_path = ?,
-          tracker_id = ?,
-          updated_at = updated_at
-        WHERE id = ?
-      `;
-      await connection.execute(updateSql, [
-        assistant_manager_id ?? null,
-        qa_user_id ?? null,
-        whole_file_path ?? null,
-        qc_score ?? null,
-        status ?? null,
-        finalQCStatus ?? null,
-        file_record_count ?? null,
-        qc_generated_count ?? null,
-        error_list ? JSON.stringify(error_list) : null,
-        qc_file_path ?? null,
-        tracker_id ?? null,
-        qcId,
-      ]);
+      
+      // Build dynamic UPDATE query - only update fields that are provided
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+      
+      if (assistant_manager_id !== undefined) {
+        updateFields.push('assistant_manager_id = ?');
+        updateValues.push(assistant_manager_id);
+      }
+      if (qa_user_id !== undefined) {
+        updateFields.push('qa_user_id = ?');
+        updateValues.push(qa_user_id);
+      }
+      if (whole_file_path !== undefined) {
+        updateFields.push('whole_file_path = ?');
+        updateValues.push(whole_file_path);
+      }
+      if (qc_score !== undefined) {
+        updateFields.push('qc_score = ?');
+        updateValues.push(qc_score);
+      }
+      if (status !== undefined) {
+        updateFields.push('status = ?');
+        updateValues.push(status);
+      }
+      if (finalQCStatus !== undefined) {
+        updateFields.push('qc_status = ?');
+        updateValues.push(finalQCStatus);
+      }
+      if (file_record_count !== undefined) {
+        updateFields.push('file_record_count = ?');
+        updateValues.push(file_record_count);
+      }
+      if (qc_generated_count !== undefined) {
+        updateFields.push('qc_generated_count = ?');
+        updateValues.push(qc_generated_count);
+      }
+      if (error_list !== undefined) {
+        updateFields.push('error_list = ?');
+        updateValues.push(JSON.stringify(error_list));
+      }
+      if (qc_file_path !== undefined) {
+        updateFields.push('qc_file_path = ?');
+        updateValues.push(qc_file_path);
+      }
+      if (tracker_id !== undefined) {
+        updateFields.push('tracker_id = ?');
+        updateValues.push(tracker_id);
+      }
+      
+      // Always update timestamp
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      
+      if (updateFields.length > 0) {
+        const updateSql = `
+          UPDATE qc_records SET
+            ${updateFields.join(', ')}
+          WHERE id = ?
+        `;
+        updateValues.push(qcId);
+        console.log(`[QC Record] Updating fields:`, updateFields);
+        await connection.execute(updateSql, updateValues);
+      }
     } else {
+      console.log(`[QC Record] INSERTING new record for tracker_id: ${tracker_id}`);
       const insertSql = `
         INSERT INTO qc_records (
           assistant_manager_id, qa_user_id, agent_id, project_id, task_id,
@@ -449,7 +493,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         formattedSubmissionDate ?? null,
         qc_score ?? null,
         status ?? null,
-        finalQCStatus ?? null,
+        finalQCStatus,
         file_record_count ?? null,
         qc_generated_count ?? null,
         error_list ? JSON.stringify(error_list) : null,
