@@ -417,17 +417,17 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         WHERE id = ?
       `;
       await connection.execute(updateSql, [
-        assistant_manager_id,
-        qa_user_id,
-        whole_file_path,
-        qc_score,
-        status,
-        finalQCStatus,
-        file_record_count,
-        qc_generated_count,
-        JSON.stringify(error_list),
-        qc_file_path,
-        tracker_id || null,
+        assistant_manager_id ?? null,
+        qa_user_id ?? null,
+        whole_file_path ?? null,
+        qc_score ?? null,
+        status ?? null,
+        finalQCStatus ?? null,
+        file_record_count ?? null,
+        qc_generated_count ?? null,
+        error_list ? JSON.stringify(error_list) : null,
+        qc_file_path ?? null,
+        tracker_id ?? null,
         qcId,
       ]);
     } else {
@@ -440,21 +440,21 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const [result] = await connection.execute(insertSql, [
-        assistant_manager_id,
-        qa_user_id,
-        agent_id,
-        project_id,
-        task_id,
-        whole_file_path,
-        formattedSubmissionDate,
-        qc_score,
-        status,
-        finalQCStatus,
-        file_record_count,
-        qc_generated_count,
-        JSON.stringify(error_list),
-        qc_file_path,
-        tracker_id || null,
+        assistant_manager_id ?? null,
+        qa_user_id ?? null,
+        agent_id ?? null,
+        project_id ?? null,
+        task_id ?? null,
+        whole_file_path ?? null,
+        formattedSubmissionDate ?? null,
+        qc_score ?? null,
+        status ?? null,
+        finalQCStatus ?? null,
+        file_record_count ?? null,
+        qc_generated_count ?? null,
+        error_list ? JSON.stringify(error_list) : null,
+        qc_file_path ?? null,
+        tracker_id ?? null,
       ]);
       qcId = (result as any).insertId;
     }

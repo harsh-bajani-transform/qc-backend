@@ -45,8 +45,13 @@ export const getTrackerData = async (req: Request, res: Response) => {
     // Get database connection to fetch task information
     const connection = await get_db_connection();
 
-    // Add task information (including important_columns) to each tracker
+    // Add task information (including important_columns) and agent_id to each tracker
     for (const tracker of trackersWithFiles) {
+      // Map user_id to agent_id for QC form compatibility
+      if (tracker.user_id && !tracker.agent_id) {
+        tracker.agent_id = tracker.user_id;
+      }
+
       try {
         const [taskRows] = (await connection.execute(
           "SELECT task_id, task_name, important_columns FROM task WHERE task_id = ?",
