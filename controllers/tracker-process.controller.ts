@@ -68,6 +68,19 @@ export const processExcelFiles = async (req: Request, res: Response) => {
         )) as [any[], any];
         const duplicateCheckEnabled = !!projectRows?.[0]?.duplicate_check;
 
+        const originalName = mreq.file.originalname;
+        const fileSize = mreq.file.size;
+        const ext = path.extname(originalName).toLowerCase();
+        
+        console.log(`Processing uploaded file: ${originalName} (${fileSize} bytes)`);
+
+        if (ext !== ".xlsx") {
+          return res.status(400).json({
+            success: false,
+            message: `Unsupported file type: ${ext}. Only .xlsx files are supported for processing.`,
+          });
+        }
+
         let importantColumns: string[] = [];
         const rawImportant = taskRows?.[0]?.important_columns;
 
@@ -414,8 +427,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
         const ext = path.extname(resolvedFilePath).toLowerCase();
         console.log(`File extension detected: ${ext}`);
 
-        if (ext === ".xlsx" || ext === ".xls") {
-          console.log("Excel file detected - reading content...");
+        if (ext === ".xlsx") {
+          console.log(`Excel (.xlsx) file detected - size: ${stats.size} bytes. Reading content...`);
 
           // Check if QC record already exists for this file
           const [existingQC] = (await connection.execute(
@@ -670,16 +683,13 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
               return {
                 processed: true,
+                filename: path.basename(resolvedFilePath),
                 recordsInserted: trackerRecordsProcessed,
                 duplicatesSkipped: trackerDuplicatesFound,
               };
             } catch (excelError) {
-              console.log(
-                "Error reading Excel file:",
-                excelError instanceof Error
-                  ? excelError.message
-                  : String(excelError),
-              );
+              const errorMessage = excelError instanceof Error ? excelError.message : String(excelError);
+              console.error(`Error reading Excel file [${path.basename(resolvedFilePath)}]: ${errorMessage}`);
 
               // Update QC performance record with failed status
               if (qcPerformanceId) {
@@ -690,6 +700,8 @@ export const processExcelFiles = async (req: Request, res: Response) => {
               }
               return {
                 processed: false,
+                filename: path.basename(resolvedFilePath),
+                error: errorMessage,
                 recordsInserted: 0,
                 duplicatesSkipped: 0,
               };
@@ -700,30 +712,35 @@ export const processExcelFiles = async (req: Request, res: Response) => {
             );
             return {
               processed: false,
+              filename: path.basename(resolvedFilePath),
+              reason: "File already successfully processed",
               recordsInserted: 0,
               duplicatesSkipped: 0,
             };
           }
-        } else {
-          console.log(
-            `File type ${ext} not supported - only Excel files are processed`,
-          );
-          return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
+        } else if (ext === ".xls") {
+          const reason = "Unsupported old Excel format (.xls). Please convert to .xlsx.";
+          console.warn(`File '${path.basename(resolvedFilePath)}' is an old Excel format (.xls) and cannot be processed with ExcelJS. Please convert to .xlsx.`);
+          return {
+            processed: false,
+            filename: path.basename(resolvedFilePath),
+            reason,
+            recordsInserted: 0,
+            duplicatesSkipped: 0
+          };
         }
       } catch (error) {
         console.log(
           "Error reading file:",
           error instanceof Error ? error.message : String(error),
         );
-
-        // Update QC performance record with error status
-        if (qcPerformanceId) {
-          await connection.execute(
-            "UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            ["failed", qcPerformanceId],
-          );
-        }
-        return { processed: false, recordsInserted: 0, duplicatesSkipped: 0 };
+        return {
+          processed: false,
+          filename: path.basename(resolvedFilePath),
+          error: error instanceof Error ? error.message : String(error),
+          recordsInserted: 0,
+          duplicatesSkipped: 0
+        };
       }
     });
 
@@ -749,11 +766,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      message: "Excel files processed and data stored successfully",
+      message: "Excel files processed and summarized",
       data: {
         processedFiles: filesActuallyProcessed,
-        recordsInserted: totalRecordsProcessed,
-        duplicatesSkipped: totalDuplicatesSkipped,
+        totalRecordsInserted: totalRecordsProcessed,
+        totalDuplicatesSkipped: totalDuplicatesSkipped,
+        fileResults: results // This now contains details for each file
       },
     });
   } catch (error) {
