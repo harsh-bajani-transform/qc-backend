@@ -6,6 +6,9 @@ import trackerRoutes from "./routes/tracker.routes";
 import aiEvaluationRoutes from "./routes/ai-evaluation.routes";
 import geminiKeyRoutes from "./routes/gemini-key.routes";
 import qcRecordsRoutes from "./routes/qc-records.routes";
+import qcRegularRoutes from "./routes/qc-regular.routes";
+import qcCorrectionRoutes from "./routes/qc-correction.routes";
+import qcReworkRoutes from "./routes/qc-rework.routes";
 import mailRoutes from "./routes/mail.routes";
 import path from "path";
 
@@ -32,6 +35,9 @@ app.use("/api/v1", trackerRoutes);
 app.use("/api/v1", aiEvaluationRoutes);
 app.use("/api/v1", geminiKeyRoutes);
 app.use("/api/v1", qcRecordsRoutes);
+app.use("/api/v1", qcRegularRoutes);
+app.use("/api/v1", qcCorrectionRoutes);
+app.use("/api/v1", qcReworkRoutes);
 app.use("/api/v1", mailRoutes);
 
 app.listen(PORT, () => {
