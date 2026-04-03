@@ -108,9 +108,9 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
       agent_id,
       project_id,
       task_id,
-      whole_file_path,
+      "", // whole_file_path not needed for correction flow
       tracker_id,
-      qcId,
+      qcId
     );
 
     // Update the final status if it was changed by the workflow

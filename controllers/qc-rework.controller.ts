@@ -111,9 +111,9 @@ export const saveReworkQC = async (req: Request, res: Response) => {
       agent_id,
       project_id,
       task_id,
-      whole_file_path,
       tracker_id,
       qcId,
+      whole_file_path
     );
 
     // Update the final status if it was changed by the workflow

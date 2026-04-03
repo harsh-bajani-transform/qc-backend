@@ -101,9 +101,9 @@ export const saveRegularQC = async (req: Request, res: Response) => {
           safeParams.agent_id,
           safeParams.project_id,
           safeParams.task_id,
-          safeParams.whole_file_path,
           safeParams.tracker_id,
           existingRows[0].id,
+          safeParams.whole_file_path
         );
 
         // Update the final status if it was changed by the workflow
@@ -167,6 +167,102 @@ export const saveRegularQC = async (req: Request, res: Response) => {
         return res.status(200).json({
           success: true,
           message: "Rework QC record saved successfully",
+          data: { id: existingRows[0].id },
+        });
+      }
+
+      // Check if there's an active correction cycle for this record
+      const [activeCorrectionRows]: any = await connection.execute(
+        `SELECT qc_correction_id, correction_count FROM qc_correction_history
+         WHERE qc_record_id = ? AND (correction_file_qc_status IS NULL OR correction_file_qc_status = 'pending')
+         ORDER BY correction_count DESC LIMIT 1`,
+        [existingRows[0].id]
+      );
+
+      if (activeCorrectionRows.length > 0) {
+        // This is a correction evaluation - update correction_history instead of qc_records
+        console.log(`[QC Regular] Regular submission for active correction cycle ${activeCorrectionRows[0].correction_count}`);
+        const finalQCStatus = await QCWorkflowService.handleCorrectionWorkflow(
+          connection,
+          existingRows[0].id,
+          "regular",
+          {
+            qc_file_path: safeParams.qc_file_path,
+            whole_file_path: safeParams.whole_file_path,
+            error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
+            // no qc_score — correction is status-only
+          },
+        );
+
+        // Run status-transition side-effects
+        await handleQCStatusTransitions(
+          connection,
+          "regular",
+          safeParams.agent_id,
+          safeParams.project_id,
+          safeParams.task_id,
+          safeParams.tracker_id,
+          existingRows[0].id,
+          safeParams.whole_file_path
+        );
+
+        // Update the final status if it was changed by the workflow
+        if (finalQCStatus !== existingRows[0].qc_status) {
+          await connection.execute(
+            "UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [finalQCStatus, existingRows[0].id],
+          );
+        }
+
+        // Update qc_status in task_work_tracker
+        if (safeParams.tracker_id) {
+          const updateTrackerStatusSql = `
+            UPDATE task_work_tracker 
+            SET qc_status = 1 
+            WHERE tracker_id = ?
+          `;
+          await connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+          console.log(
+            `[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`,
+          );
+        }
+
+        await connection.commit();
+
+        // Send Background Email (Async)
+        const emailData = await getQCRecordEmailDetails(
+          connection,
+          safeParams.agent_id,
+          safeParams.project_id,
+          safeParams.task_id,
+          safeParams.qa_user_id,
+        );
+
+        if (emailData) {
+          const submission_time = safeParams.date_of_file_submission
+            ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+            : "N/A";
+
+          sendQCEmailInternal({
+            agent_name: emailData.agent_name,
+            agent_email: emailData.agent_email,
+            project_name: emailData.project_name,
+            task_name: emailData.task_name,
+            qa_name: emailData.qa_name,
+            file_path: safeParams.qc_file_path,
+            submission_time,
+          }).catch((err: any) =>
+            console.error("[QC Regular] Asynchronous email failed:", err),
+          );
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: "Correction QC record saved successfully",
           data: { id: existingRows[0].id },
         });
       }

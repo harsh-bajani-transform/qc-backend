@@ -92,7 +92,7 @@ export class QCWorkflowService {
              correction_status         = 'completed',
              correction_file_qc_status = 'completed'
          WHERE qc_correction_id = ?`,
-        [JSON.stringify(data.error_list), activeRow.qc_correction_id]
+        [JSON.stringify(data.error_list || []), activeRow.qc_correction_id]
       );
     } else {
       // No active row found (either first time marking correction, or history was purged)

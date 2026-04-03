@@ -563,8 +563,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         qcId,
         status,
         {
-          whole_file_path,
           qc_file_path,
+          whole_file_path,  // Add this missing parameter
           error_list,
           // no qc_score — correction is status-only
         },
@@ -593,9 +593,9 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         agent_id,
         project_id,
         task_id,
-        whole_file_path,
         tracker_id || null,
         qcId,
+        whole_file_path
       );
     }
 
