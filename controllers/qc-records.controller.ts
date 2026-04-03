@@ -513,21 +513,50 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     );
 
     // 4. Handle Specialized Workflows (Workflow Factory/Service)
+    // First check if this is a rework submission that should update rework_history instead of qc_records
     if (status === "regular") {
-      finalQCStatus = await QCWorkflowService.handleRegularWorkflow(
-        connection,
-        qcId,
-        status,
-        existingRows.length > 0 ? existingRows[0].qc_status : null,
-        {
-          whole_file_path,
-          qc_file_path,
-          error_list,
-          file_record_count,
-          qc_generated_count: qc_generated_count,
-          qc_score: qc_score,
-        },
+      // Check if there's an active rework cycle for this record
+      const [activeReworkRows]: any = await connection.execute(
+        `SELECT qc_rework_id, rework_count FROM qc_rework_history
+         WHERE qc_record_id = ? AND (rework_file_qc_status IS NULL OR rework_file_qc_status = 'pending')
+         ORDER BY rework_count DESC LIMIT 1`,
+        [qcId]
       );
+
+      if (activeReworkRows.length > 0) {
+        // This is a rework evaluation - update rework_history instead of qc_records
+        console.log(`[QC Record] Regular submission for active rework cycle ${activeReworkRows[0].rework_count}`);
+        finalQCStatus = await QCWorkflowService.handleReworkWorkflow(
+          connection,
+          qcId,
+          status,
+          {
+            whole_file_path,
+            qc_file_path,
+            error_list,
+            file_record_count,
+            qc_generated_count: qc_generated_count,
+            qc_score: qc_score,
+          },
+        );
+      } else {
+        // This is a regular first-time QC evaluation - update qc_records
+        console.log(`[QC Record] Regular submission for initial QC evaluation`);
+        finalQCStatus = await QCWorkflowService.handleRegularWorkflow(
+          connection,
+          qcId,
+          status,
+          existingRows.length > 0 ? existingRows[0].qc_status : null,
+          {
+            whole_file_path,
+            qc_file_path,
+            error_list,
+            file_record_count,
+            qc_generated_count: qc_generated_count,
+            qc_score: qc_score,
+          },
+        );
+      }
     } else if (status === "correction") {
       finalQCStatus = await QCWorkflowService.handleCorrectionWorkflow(
         connection,
