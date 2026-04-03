@@ -111,15 +111,19 @@ export class QCWorkflowService {
            qc_record_id,
            qc_file_path,
            correction_file_path,
+           correction_file_qc_status,
            correction_count,
            correction_status,
-           correction_error_list,
-           correction_file_qc_status
-         ) VALUES (?, ?, NULL, ?, 'correction', NULL, NULL)`,
+           correction_error_list
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           qcId,
-          data.qc_file_path, // For correction, we send the sample/marked file to agent
+          data.qc_file_path || null, // For correction, we send the sample/marked file to agent
+          null, // correction_file_path (will be updated when agent uploads)
+          null, // correction_file_qc_status (will be updated when agent uploads)
           nextCount,
+          'correction',
+          null // correction_error_list (will be updated when QA reviews)
         ]
       );
 
