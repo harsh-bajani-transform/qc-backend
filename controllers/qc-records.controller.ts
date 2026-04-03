@@ -427,7 +427,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         updateFields.push('whole_file_path = ?');
         updateValues.push(whole_file_path);
       }
-      if (qc_score !== undefined) {
+      if (qc_score !== undefined && status !== "rework") {
         updateFields.push('qc_score = ?');
         updateValues.push(qc_score);
       }
