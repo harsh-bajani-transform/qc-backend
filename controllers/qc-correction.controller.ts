@@ -154,17 +154,24 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
           })
         : "N/A";
 
+      // Fetch QC score from qc_records table for this correction record
+      const [qcRecordRows]: any = await connection.execute(
+        "SELECT qc_score FROM qc_records WHERE id = ?",
+        [qcId]
+      );
+      const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
+
       sendQCEmailInternal({
         agent_email: emailData.agent_email,
         status: "correction",
         project_name: emailData.project_name,
         task_name: emailData.task_name,
         qc_agent_name: emailData.qa_name,
-        qc_score: null, // No score for correction
+        qc_score: qcScore, // Fetch QC score from qc_records table
         error_count: error_list?.length || 0,
         error_list,
         comments: comments || "",
-        file_path: whole_file_path,
+        file_path: qc_file_path, // Send sample file instead of whole file
         submission_time,
       }).catch((err: any) =>
         console.error("[QC Correction] Asynchronous email failed:", err),

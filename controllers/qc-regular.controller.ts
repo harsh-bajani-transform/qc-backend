@@ -239,6 +239,13 @@ export const saveRegularQC = async (req: Request, res: Response) => {
         );
 
         if (emailData) {
+          // Fetch QC score from qc_records table for this correction record
+          const [qcRecordRows]: any = await connection.execute(
+            "SELECT qc_score FROM qc_records WHERE id = ?",
+            [existingRows[0].id]
+          );
+          const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
+
           const submission_time = safeParams.date_of_file_submission
             ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
                 day: "2-digit",
@@ -253,7 +260,9 @@ export const saveRegularQC = async (req: Request, res: Response) => {
             project_name: emailData.project_name,
             task_name: emailData.task_name,
             qa_name: emailData.qa_name,
-            file_path: safeParams.qc_file_path,
+            status: "correction", // Specify this is a correction completion
+            qc_score: qcScore, // Fetch QC score from qc_records table
+            file_path: safeParams.qc_file_path, // Send sample file instead of whole file
             submission_time,
           }).catch((err: any) =>
             console.error("[QC Regular] Asynchronous email failed:", err),
