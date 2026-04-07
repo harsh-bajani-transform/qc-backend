@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -56,7 +47,7 @@ function decryptKey(token) {
 // POST /api/v1/gemini-key/save
 // Body: { user_id, gemini_api_key }
 // ──────────────────────────────────────────────
-const saveGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const saveGeminiKey = async (req, res) => {
     const { user_id, gemini_api_key } = req.body;
     if (!user_id || !gemini_api_key) {
         return res
@@ -66,10 +57,10 @@ const saveGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             message: "user_id and gemini_api_key are required",
         });
     }
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
         const encrypted = encryptKey(String(gemini_api_key).trim());
-        yield connection.execute("UPDATE tfs_user SET gemini_api_key = ?, updated_date = NOW() WHERE user_id = ?", [encrypted, user_id]);
+        await connection.execute("UPDATE tfs_user SET gemini_api_key = ?, updated_date = NOW() WHERE user_id = ?", [encrypted, user_id]);
         res
             .status(200)
             .json({ success: true, message: "Gemini API key saved successfully" });
@@ -79,16 +70,16 @@ const saveGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         res.status(500).json({ success: false, message: "Failed to save API key" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.saveGeminiKey = saveGeminiKey;
 // ──────────────────────────────────────────────
 // Get Gemini API Key (returns masked + success flag)
 // POST /api/v1/gemini-key/get
 // Body: { user_id }
 // ──────────────────────────────────────────────
-const getGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getGeminiKey = async (req, res) => {
     var _a;
     const { user_id } = req.body;
     if (!user_id) {
@@ -96,9 +87,9 @@ const getGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             .status(400)
             .json({ success: false, message: "user_id is required" });
     }
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
-        const [rows] = (yield connection.execute("SELECT gemini_api_key FROM tfs_user WHERE user_id = ?", [user_id]));
+        const [rows] = (await connection.execute("SELECT gemini_api_key FROM tfs_user WHERE user_id = ?", [user_id]));
         if (!rows || rows.length === 0) {
             return res
                 .status(404)
@@ -123,25 +114,25 @@ const getGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             .json({ success: false, message: "Failed to retrieve API key" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.getGeminiKey = getGeminiKey;
 // ──────────────────────────────────────────────
 // Delete Gemini API Key
 // POST /api/v1/gemini-key/delete
 // Body: { user_id }
 // ──────────────────────────────────────────────
-const deleteGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteGeminiKey = async (req, res) => {
     const { user_id } = req.body;
     if (!user_id) {
         return res
             .status(400)
             .json({ success: false, message: "user_id is required" });
     }
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
-        yield connection.execute("UPDATE tfs_user SET gemini_api_key = NULL, updated_date = NOW() WHERE user_id = ?", [user_id]);
+        await connection.execute("UPDATE tfs_user SET gemini_api_key = NULL, updated_date = NOW() WHERE user_id = ?", [user_id]);
         res.status(200).json({ success: true, message: "Gemini API key removed" });
     }
     catch (err) {
@@ -151,7 +142,7 @@ const deleteGeminiKey = (req, res) => __awaiter(void 0, void 0, void 0, function
             .json({ success: false, message: "Failed to remove API key" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.deleteGeminiKey = deleteGeminiKey;

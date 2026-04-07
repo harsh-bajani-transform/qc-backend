@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getRegularQCRecords = exports.saveRegularQC = void 0;
 const db_1 = require("../database/db");
@@ -18,11 +9,11 @@ const mail_controller_1 = require("../controllers/mail.controller");
  * Controller for handling Regular QC evaluations
  * This is for first-time QC evaluations of submitted files
  */
-const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const saveRegularQC = async (req, res) => {
     console.log("[QC Regular] POST /save received.");
-    const connection = yield (0, db_1.get_db_connection)();
+    const connection = await (0, db_1.get_db_connection)();
     try {
-        yield connection.beginTransaction();
+        await connection.beginTransaction();
         // Extract form data with null checks
         const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
         // Ensure all values are properly handled (undefined -> null)
@@ -43,23 +34,23 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         };
         // Validate required fields
         if (!safeParams.qa_user_id || !safeParams.project_id || !safeParams.task_id || !safeParams.tracker_id) {
-            yield connection.rollback();
+            await connection.rollback();
             return res.status(400).json({
                 success: false,
                 message: "Missing required fields",
             });
         }
         // Check if QC record already exists for this tracker
-        const [existingRows] = yield connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [safeParams.tracker_id]);
+        const [existingRows] = await connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [safeParams.tracker_id]);
         if (existingRows.length > 0) {
             // Check if there's an active rework cycle for this record
-            const [activeReworkRows] = yield connection.execute(`SELECT qc_rework_id, rework_count FROM qc_rework_history
+            const [activeReworkRows] = await connection.execute(`SELECT qc_rework_id, rework_count FROM qc_rework_history
          WHERE qc_record_id = ? AND (rework_file_qc_status IS NULL OR rework_file_qc_status = 'pending')
          ORDER BY rework_count DESC LIMIT 1`, [existingRows[0].id]);
             if (activeReworkRows.length > 0) {
                 // This is a rework evaluation - update rework_history instead of qc_records
                 console.log(`[QC Regular] Regular submission for active rework cycle ${activeReworkRows[0].rework_count}`);
-                const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, existingRows[0].id, "regular", {
+                const finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, existingRows[0].id, "regular", {
                     whole_file_path: safeParams.whole_file_path,
                     qc_file_path: safeParams.qc_file_path,
                     error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
@@ -68,10 +59,10 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     qc_score: safeParams.qc_score,
                 });
                 // Run status-transition side-effects
-                yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
+                await (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
                 // Update the final status if it was changed by the workflow
                 if (finalQCStatus !== existingRows[0].qc_status) {
-                    yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
+                    await connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
                 }
                 // Update qc_status in task_work_tracker
                 if (safeParams.tracker_id) {
@@ -80,12 +71,12 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             SET qc_status = 1 
             WHERE tracker_id = ?
           `;
-                    yield connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+                    await connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
                     console.log(`[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`);
                 }
-                yield connection.commit();
+                await connection.commit();
                 // Send Background Email (Async)
-                const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
+                const emailData = await (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
                 if (emailData) {
                     const submission_time = safeParams.date_of_file_submission
                         ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
@@ -115,23 +106,23 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 });
             }
             // Check if there's an active correction cycle for this record
-            const [activeCorrectionRows] = yield connection.execute(`SELECT qc_correction_id, correction_count FROM qc_correction_history
+            const [activeCorrectionRows] = await connection.execute(`SELECT qc_correction_id, correction_count FROM qc_correction_history
          WHERE qc_record_id = ? AND (correction_file_qc_status IS NULL OR correction_file_qc_status = 'pending')
          ORDER BY correction_count DESC LIMIT 1`, [existingRows[0].id]);
             if (activeCorrectionRows.length > 0) {
                 // This is a correction evaluation - update correction_history instead of qc_records
                 console.log(`[QC Regular] Regular submission for active correction cycle ${activeCorrectionRows[0].correction_count}`);
-                const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, existingRows[0].id, "regular", {
+                const finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, existingRows[0].id, "regular", {
                     qc_file_path: safeParams.qc_file_path,
                     whole_file_path: safeParams.whole_file_path,
                     error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
                     // no qc_score — correction is status-only
                 });
                 // Run status-transition side-effects
-                yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
+                await (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
                 // Update the final status if it was changed by the workflow
                 if (finalQCStatus !== existingRows[0].qc_status) {
-                    yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
+                    await connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
                 }
                 // Update qc_status in task_work_tracker
                 if (safeParams.tracker_id) {
@@ -140,18 +131,18 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             SET qc_status = 1 
             WHERE tracker_id = ?
           `;
-                    yield connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+                    await connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
                     console.log(`[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`);
                 }
-                yield connection.commit();
+                await connection.commit();
                 // Send Background Email (Async)
-                const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
+                const emailData = await (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
                 if (emailData) {
                     // Fetch QC score and sample file path from correction history
-                    const [correctionHistoryRows] = yield connection.execute("SELECT qc_file_path, created_at FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1", [existingRows[0].id]);
+                    const [correctionHistoryRows] = await connection.execute("SELECT qc_file_path, created_at FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1", [existingRows[0].id]);
                     const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
                     const correctionCreatedAt = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].created_at : null;
-                    const [qcRecordRows] = yield connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [existingRows[0].id]);
+                    const [qcRecordRows] = await connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [existingRows[0].id]);
                     const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
                     // Use correction creation date if original submission date is not available
                     const final_submission_time = safeParams.date_of_file_submission
@@ -185,14 +176,14 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     data: { id: existingRows[0].id },
                 });
             }
-            yield connection.rollback();
+            await connection.rollback();
             return res.status(400).json({
                 success: false,
                 message: "QC record already exists for this tracker. Use rework or correction endpoints instead.",
             });
         }
         // Insert new QC record
-        const [insertResult] = yield connection.execute(`INSERT INTO qc_records (
+        const [insertResult] = await connection.execute(`INSERT INTO qc_records (
         assistant_manager_id, qa_user_id, agent_id, project_id, task_id,
         whole_file_path, date_of_file_submission, qc_score, status, qc_status,
         file_record_count, qc_generated_count,
@@ -217,7 +208,7 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const qcId = insertResult.insertId;
         console.log(`[QC Regular] New QC record created with ID: ${qcId}`);
         // Handle workflow (should be completed for regular QC)
-        const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleRegularWorkflow(connection, qcId, "regular", null, {
+        const finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleRegularWorkflow(connection, qcId, "regular", null, {
             whole_file_path: safeParams.whole_file_path,
             qc_file_path: safeParams.qc_file_path,
             error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
@@ -226,7 +217,7 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             qc_score: safeParams.qc_score,
         });
         // Run status-transition side-effects
-        yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.whole_file_path, safeParams.tracker_id, qcId);
+        await (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.whole_file_path, safeParams.tracker_id, qcId);
         // Update qc_status in task_work_tracker
         if (safeParams.tracker_id) {
             const updateTrackerStatusSql = `
@@ -234,12 +225,12 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         SET qc_status = 1 
         WHERE tracker_id = ?
       `;
-            yield connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+            await connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
             console.log(`[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`);
         }
-        yield connection.commit();
+        await connection.commit();
         // Send Background Email (Async)
-        const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
+        const emailData = await (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
         if (emailData) {
             const submission_time = safeParams.date_of_file_submission
                 ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
@@ -270,7 +261,7 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
     catch (error) {
         if (connection)
-            yield connection.rollback();
+            await connection.rollback();
         console.error("Error saving regular QC record:", error);
         return res
             .status(500)
@@ -278,13 +269,13 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
     finally {
         if (connection)
-            yield connection.end();
+            await connection.end();
     }
-});
+};
 exports.saveRegularQC = saveRegularQC;
-const getRegularQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getRegularQCRecords = async (req, res) => {
     const { logged_in_user_id } = req.query;
-    const connection = yield (0, db_1.get_db_connection)();
+    const connection = await (0, db_1.get_db_connection)();
     try {
         let sql = `
       SELECT 
@@ -308,7 +299,7 @@ const getRegularQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, func
             queryParams.push(logged_in_user_id);
         }
         sql += ` ORDER BY q.created_at DESC`;
-        const [rows] = yield connection.execute(sql, queryParams);
+        const [rows] = await connection.execute(sql, queryParams);
         return res.status(200).json({ success: true, data: rows });
     }
     catch (error) {
@@ -318,7 +309,7 @@ const getRegularQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, func
             .json({ success: false, message: "Internal server error" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.getRegularQCRecords = getRegularQCRecords;

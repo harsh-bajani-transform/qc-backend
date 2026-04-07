@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -39,10 +30,10 @@ const upload = (0, multer_1.default)({
     },
 });
 // AI evaluation of Excel file
-const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const evaluateExcelFile = async (req, res) => {
     try {
         // Use multer middleware to handle file upload
-        upload.single("file")(req, res, (err) => __awaiter(void 0, void 0, void 0, function* () {
+        upload.single("file")(req, res, async (err) => {
             var _a;
             if (err) {
                 return res.status(400).json({
@@ -70,10 +61,10 @@ const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     message: "user_id, project_id, and task_id are required",
                 });
             }
-            const connection = yield (0, db_1.default)();
+            const connection = await (0, db_1.default)();
             try {
                 // Verify user is QC agent or higher
-                const user = yield user_queries_1.default.getUserWithDesignation(userId);
+                const user = await user_queries_1.default.getUserWithDesignation(userId);
                 if (!user || user.designation_id < 1) {
                     return res.status(403).json({
                         success: false,
@@ -101,7 +92,7 @@ const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     });
                 }
                 // Get task details for important columns
-                const [taskDetails] = (yield connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
+                const [taskDetails] = (await connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
                 const importantColumns = ((_a = taskDetails[0]) === null || _a === void 0 ? void 0 : _a.important_columns) || "";
                 // --- BATCH PROCESSING ---
                 const BATCH_SIZE = 50;
@@ -112,12 +103,12 @@ const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 }
                 console.log(`Processing ${totalRecords} records in ${batches.length} batches...`);
                 // Process all batches in parallel
-                const batchPromises = batches.map((batch, index) => __awaiter(void 0, void 0, void 0, function* () {
+                const batchPromises = batches.map(async (batch, index) => {
                     const aiPrompt = (0, ai_evaluation_utils_1.generateAIPrompt)(batch, importantColumns);
-                    const aiResponse = yield ai_1.default.evaluateData(aiPrompt, userApiKey);
+                    const aiResponse = await ai_1.default.evaluateData(aiPrompt, userApiKey);
                     return (0, ai_evaluation_utils_1.parseAIResponse)(aiResponse, batch.length);
-                }));
-                const batchResults = yield Promise.all(batchPromises);
+                });
+                const batchResults = await Promise.all(batchPromises);
                 // Aggregate results
                 const aggregatedResult = (0, ai_evaluation_utils_1.aggregateAIResults)(batchResults);
                 res.status(200).json({
@@ -127,9 +118,9 @@ const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 });
             }
             finally {
-                yield connection.end();
+                await connection.end();
             }
-        }));
+        });
     }
     catch (error) {
         console.error("AI evaluation error:", error);
@@ -138,12 +129,12 @@ const evaluateExcelFile = (req, res) => __awaiter(void 0, void 0, void 0, functi
             message: "Internal server error during AI evaluation",
         });
     }
-});
+};
 exports.evaluateExcelFile = evaluateExcelFile;
 // Check for duplicates
-const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const checkDuplicates = async (req, res) => {
     try {
-        upload.single("file")(req, res, (err) => __awaiter(void 0, void 0, void 0, function* () {
+        upload.single("file")(req, res, async (err) => {
             if (err) {
                 return res.status(400).json({
                     success: false,
@@ -167,10 +158,10 @@ const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function
                     message: "user_id, project_id, and task_id are required",
                 });
             }
-            const connection = yield (0, db_1.default)();
+            const connection = await (0, db_1.default)();
             try {
                 // Verify user is QC agent or higher
-                const user = yield user_queries_1.default.getUserWithDesignation(userId);
+                const user = await user_queries_1.default.getUserWithDesignation(userId);
                 if (!user || user.designation_id < 1) {
                     return res.status(403).json({
                         success: false,
@@ -178,7 +169,7 @@ const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function
                     });
                 }
                 // Get task details to understand important columns
-                const [taskDetails] = (yield connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
+                const [taskDetails] = (await connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
                 if (taskDetails.length === 0) {
                     return res.status(404).json({
                         success: false,
@@ -216,7 +207,7 @@ const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function
                     console.log(`[Duplicate Check] Sample Hash Input: "${currentHashes[0].hashInput}" -> Hash: ${currentHashes[0].hash}`);
                 }
                 // Get existing hashes from tracker_records table (Global Check)
-                const existingHashes = yield (0, ai_evaluation_utils_1.getExistingHashes)(connection);
+                const existingHashes = await (0, ai_evaluation_utils_1.getExistingHashes)(connection);
                 console.log(`[Duplicate Check] Found ${existingHashes.length} existing hashes in DB (Global Check)`);
                 if (existingHashes.length > 0) {
                     console.log(`[Duplicate Check] Sample DB Hash: ${existingHashes[0]}`);
@@ -236,9 +227,9 @@ const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function
                 });
             }
             finally {
-                yield connection.end();
+                await connection.end();
             }
-        }));
+        });
     }
     catch (error) {
         console.error("Duplicate check error:", error);
@@ -247,5 +238,5 @@ const checkDuplicates = (req, res) => __awaiter(void 0, void 0, void 0, function
             message: "Internal server error during duplicate check",
         });
     }
-});
+};
 exports.checkDuplicates = checkDuplicates;

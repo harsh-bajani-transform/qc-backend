@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -229,69 +220,59 @@ class AIService {
         }
     }
     // Analyze a single record against criteria
-    static analyzeRecord(recordData, criteria, apiKey) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const { text } = yield (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.analyzeRecord(recordData, criteria) }, exports.AI_CONFIG.defaultOptions));
-                return this.parseJson(text);
-            }
-            catch (error) {
-                console.error("Error analyzing record with AI:", error);
-                throw new Error("Failed to analyze record with AI");
-            }
-        });
+    static async analyzeRecord(recordData, criteria, apiKey) {
+        try {
+            const { text } = await (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.analyzeRecord(recordData, criteria) }, exports.AI_CONFIG.defaultOptions));
+            return this.parseJson(text);
+        }
+        catch (error) {
+            console.error("Error analyzing record with AI:", error);
+            throw new Error("Failed to analyze record with AI");
+        }
     }
     // Analyze multiple records at once (more efficient)
-    static analyzeRecords(records, criteria, apiKey) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const { text } = yield (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.analyzeRecords(records, criteria) }, exports.AI_CONFIG.defaultOptions));
-                return this.parseJson(text);
-            }
-            catch (error) {
-                console.error("Error analyzing records with AI:", error);
-                throw new Error("Failed to analyze records with AI");
-            }
-        });
+    static async analyzeRecords(records, criteria, apiKey) {
+        try {
+            const { text } = await (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.analyzeRecords(records, criteria) }, exports.AI_CONFIG.defaultOptions));
+            return this.parseJson(text);
+        }
+        catch (error) {
+            console.error("Error analyzing records with AI:", error);
+            throw new Error("Failed to analyze records with AI");
+        }
     }
     // Generate comprehensive feedback for evaluation results
-    static generateEvaluationFeedback(evaluationData, overallScore, apiKey) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const { text } = yield (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.generateFeedback(evaluationData, overallScore) }, exports.AI_CONFIG.defaultOptions));
-                return this.parseJson(text);
-            }
-            catch (error) {
-                console.error("Error generating AI feedback:", error);
-                throw new Error("Failed to generate AI feedback");
-            }
-        });
+    static async generateEvaluationFeedback(evaluationData, overallScore, apiKey) {
+        try {
+            const { text } = await (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.generateFeedback(evaluationData, overallScore) }, exports.AI_CONFIG.defaultOptions));
+            return this.parseJson(text);
+        }
+        catch (error) {
+            console.error("Error generating AI feedback:", error);
+            throw new Error("Failed to generate AI feedback");
+        }
     }
     // Generate AFD-based feedback for category-specific errors
-    static generateAFDEvaluationFeedback(errorAnalysis, apiKey) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const { text } = yield (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.generateAFDFeedback(errorAnalysis) }, exports.AI_CONFIG.defaultOptions));
-                return this.parseJson(text);
-            }
-            catch (error) {
-                console.error("Error generating AFD AI feedback:", error);
-                throw new Error("Failed to generate AFD AI feedback");
-            }
-        });
+    static async generateAFDEvaluationFeedback(errorAnalysis, apiKey) {
+        try {
+            const { text } = await (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: exports.QC_PROMPTS.generateAFDFeedback(errorAnalysis) }, exports.AI_CONFIG.defaultOptions));
+            return this.parseJson(text);
+        }
+        catch (error) {
+            console.error("Error generating AFD AI feedback:", error);
+            throw new Error("Failed to generate AFD AI feedback");
+        }
     }
     // Evaluate Excel data with custom prompt
-    static evaluateData(prompt, apiKey) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const { text } = yield (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: prompt }, exports.AI_CONFIG.defaultOptions));
-                return this.parseJson(text);
-            }
-            catch (error) {
-                console.error("Error evaluating data with AI:", error);
-                throw new Error("Failed to evaluate data with AI");
-            }
-        });
+    static async evaluateData(prompt, apiKey) {
+        try {
+            const { text } = await (0, ai_1.generateText)(Object.assign({ model: this.getModel(apiKey), prompt: prompt }, exports.AI_CONFIG.defaultOptions));
+            return this.parseJson(text);
+        }
+        catch (error) {
+            console.error("Error evaluating data with AI:", error);
+            throw new Error("Failed to evaluate data with AI");
+        }
     }
     // Check if AI is properly configured
     static isConfigured() {

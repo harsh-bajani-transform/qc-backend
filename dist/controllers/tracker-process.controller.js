@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -28,10 +19,10 @@ const upload = (0, multer_1.default)({
         fileSize: 10 * 1024 * 1024,
     },
 });
-const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const processExcelFiles = async (req, res) => {
     const contentType = String(req.headers["content-type"] || "");
     if (contentType.includes("multipart/form-data")) {
-        return upload.single("file")(req, res, (err) => __awaiter(void 0, void 0, void 0, function* () {
+        return upload.single("file")(req, res, async (err) => {
             var _a, _b, _c, _d, _e, _f, _g, _h;
             if (err) {
                 return res.status(400).json({
@@ -57,10 +48,10 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     message: "project_id, task_id, and user_id are required",
                 });
             }
-            const connection = yield (0, db_1.default)();
+            const connection = await (0, db_1.default)();
             try {
-                const [taskRows] = (yield connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
-                const [projectRows] = (yield connection.execute("SELECT duplicate_check FROM project WHERE project_id = ?", [projectId]));
+                const [taskRows] = (await connection.execute("SELECT important_columns FROM task WHERE task_id = ? AND project_id = ?", [taskId, projectId]));
+                const [projectRows] = (await connection.execute("SELECT duplicate_check FROM project WHERE project_id = ?", [projectId]));
                 const duplicateCheckEnabled = ((_f = mreq.body) === null || _f === void 0 ? void 0 : _f.duplicate_check) !== undefined
                     ? (String(mreq.body.duplicate_check) === "true")
                     : !!((_g = projectRows === null || projectRows === void 0 ? void 0 : projectRows[0]) === null || _g === void 0 ? void 0 : _g.duplicate_check);
@@ -99,7 +90,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     }
                 }
                 const workbook = new exceljs_1.default.Workbook();
-                yield workbook.xlsx.load(mreq.file.buffer);
+                await workbook.xlsx.load(mreq.file.buffer);
                 const currentSessionHashes = new Set();
                 let recordsInserted = 0;
                 let duplicatesSkipped = 0;
@@ -156,7 +147,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     let existingHashes = new Set();
                     if (allHashes.length > 0) {
                         const placeholders = allHashes.map(() => "?").join(",");
-                        const [existingRows] = (yield connection.execute(`SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ? AND hash_value IN (${placeholders})`, [projectId, taskId, ...allHashes]));
+                        const [existingRows] = (await connection.execute(`SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ? AND hash_value IN (${placeholders})`, [projectId, taskId, ...allHashes]));
                         existingHashes = new Set(existingRows.map((r) => r.hash_value));
                     }
                     // Check for duplicates in database and collect them
@@ -210,7 +201,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                             const insertQuery = `INSERT ${duplicateCheckEnabled ? '' : 'IGNORE'} INTO tracker_records /* VERIFIED_VERSION_2 */
                  (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`;
-                            const [result] = yield connection.execute(insertQuery, [
+                            const [result] = await connection.execute(insertQuery, [
                                 userId,
                                 projectId,
                                 taskId,
@@ -251,9 +242,9 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 });
             }
             finally {
-                yield connection.end();
+                await connection.end();
             }
-        }));
+        });
     }
     try {
         if (!env_1.PYTHON_URL) {
@@ -265,7 +256,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
         const reqBody = (req.body || {});
         const pythonRequestBody = Object.assign(Object.assign({}, reqBody), { logged_in_user_id: reqBody.user_id || reqBody.logged_in_user_id });
         const url = `${env_1.PYTHON_URL}/tracker/view`.replace(/\/+/g, "/");
-        const response = yield axios_1.default.post(url, pythonRequestBody);
+        const response = await axios_1.default.post(url, pythonRequestBody);
         if (response.status !== 200) {
             return res.status(500).json({
                 success: false,
@@ -298,14 +289,14 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 },
             });
         }
-        const connection = yield (0, db_1.default)();
+        const connection = await (0, db_1.default)();
         let totalRecordsProcessed = 0;
         let totalDuplicatesSkipped = 0;
         let filesActuallyProcessed = 0;
         // Track hashes from current processing session to avoid self-duplicates within same file
         const currentSessionHashes = new Set();
         // Process files in parallel for better performance
-        const fileProcessingPromises = existingFiles.map((tracker) => __awaiter(void 0, void 0, void 0, function* () {
+        const fileProcessingPromises = existingFiles.map(async (tracker) => {
             const filePath = tracker.tracker_file;
             const resolvedFilePath = path_resolver_1.PathResolver.resolveFilePath(filePath);
             console.log(`\n=== Processing Tracker ID: ${tracker.tracker_id} ===`);
@@ -319,7 +310,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
             try {
                 // Get task details including important_columns and project duplicate_check flag
                 console.log("Querying task and project table for task ID:", tracker.task_id);
-                const [taskRows] = (yield connection.execute(`SELECT t.task_id, t.task_name, t.important_columns, p.duplicate_check 
+                const [taskRows] = (await connection.execute(`SELECT t.task_id, t.task_name, t.important_columns, p.duplicate_check 
            FROM task t 
            JOIN project p ON t.project_id = p.project_id 
            WHERE t.task_id = ?`, [tracker.task_id]));
@@ -347,7 +338,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 if (ext === ".xlsx") {
                     console.log(`Excel (.xlsx) file detected - size: ${stats.size} bytes. Reading content...`);
                     // Check if QC record already exists for this file
-                    const [existingQC] = (yield connection.execute("SELECT id, processing_status FROM qc_performance WHERE file_name = ?", [path_1.default.basename(resolvedFilePath)]));
+                    const [existingQC] = (await connection.execute("SELECT id, processing_status FROM qc_performance WHERE file_name = ?", [path_1.default.basename(resolvedFilePath)]));
                     let isAlreadyProcessed = false;
                     if (existingQC.length > 0) {
                         console.log(`QC record already exists for file: ${resolvedFilePath} (ID: ${existingQC[0].id})`);
@@ -361,7 +352,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     if (!isAlreadyProcessed) {
                         // Only create QC performance record for Excel files if it doesn't exist
                         if (existingQC.length === 0) {
-                            const [qcResult] = (yield connection.execute(`INSERT INTO qc_performance 
+                            const [qcResult] = (await connection.execute(`INSERT INTO qc_performance 
                  (user_id, project_id, task_id, tracker_id, file_name, important_columns, processing_status) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`, [
                                 tracker.user_id,
@@ -377,11 +368,11 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                         }
                         else {
                             // Reset status to 'processing' for re-processing
-                            yield connection.execute("UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["processing", qcPerformanceId]);
+                            await connection.execute("UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["processing", qcPerformanceId]);
                         }
                         try {
                             const workbook = new exceljs_1.default.Workbook();
-                            yield workbook.xlsx.readFile(resolvedFilePath);
+                            await workbook.xlsx.readFile(resolvedFilePath);
                             console.log(`Excel workbook loaded, worksheets: ${workbook.worksheets.length}`);
                             let fileProcessingSuccess = true;
                             try {
@@ -444,7 +435,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                                     let existingHashes = new Set();
                                     if (allHashes.length > 0) {
                                         const placeholders = allHashes.map(() => "?").join(",");
-                                        const [existingRows] = (yield connection.execute(`SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ? AND hash_value IN (${placeholders})`, [tracker.project_id, tracker.task_id, ...allHashes]));
+                                        const [existingRows] = (await connection.execute(`SELECT DISTINCT hash_value FROM tracker_records WHERE project_id = ? AND task_id = ? AND hash_value IN (${placeholders})`, [tracker.project_id, tracker.task_id, ...allHashes]));
                                         existingHashes = new Set(existingRows.map((row) => row.hash_value));
                                     }
                                     // Process records with batch results
@@ -461,7 +452,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                                         const insertQuery = `INSERT IGNORE INTO tracker_records /* VERIFIED_VERSION_2_PATH2 */
                        (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
                        VALUES (?, ?, ?, ?, ?, ?, ?)`;
-                                        const [result] = yield connection.execute(insertQuery, [
+                                        const [result] = await connection.execute(insertQuery, [
                                             tracker.user_id,
                                             tracker.project_id,
                                             tracker.task_id,
@@ -490,7 +481,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                                 console.error("Error during Excel processing:", processingError);
                                 fileProcessingSuccess = false;
                                 // Mark any partially processed records as failed
-                                yield connection.execute("UPDATE tracker_records SET status = ? WHERE task_id = ? AND status = ?", ["failed", tracker.task_id, "processing"]);
+                                await connection.execute("UPDATE tracker_records SET status = ? WHERE task_id = ? AND status = ?", ["failed", tracker.task_id, "processing"]);
                             }
                             // Update status for this tracker file
                             const finalStatus = fileProcessingSuccess
@@ -498,7 +489,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                                 : "failed";
                             // Update QC performance record
                             if (qcPerformanceId) {
-                                yield connection.execute(`UPDATE qc_performance 
+                                await connection.execute(`UPDATE qc_performance 
                    SET total_records_processed = ?, duplicates_found = ?, duplicates_removed = ?, 
                        unique_records = ?, processing_status = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?`, [
@@ -524,7 +515,7 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                             console.error(`Error reading Excel file [${path_1.default.basename(resolvedFilePath)}]: ${errorMessage}`);
                             // Update QC performance record with failed status
                             if (qcPerformanceId) {
-                                yield connection.execute("UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["failed", qcPerformanceId]);
+                                await connection.execute("UPDATE qc_performance SET processing_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["failed", qcPerformanceId]);
                             }
                             return {
                                 processed: false,
@@ -568,14 +559,14 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     duplicatesSkipped: 0
                 };
             }
-        }));
+        });
         // Wait for all files to process in parallel
-        const results = yield Promise.all(fileProcessingPromises);
+        const results = await Promise.all(fileProcessingPromises);
         // Calculate totals from parallel processing results
         filesActuallyProcessed = results.filter((r) => r.processed).length;
         totalRecordsProcessed = results.reduce((sum, r) => sum + r.recordsInserted, 0);
         totalDuplicatesSkipped = results.reduce((sum, r) => sum + r.duplicatesSkipped, 0);
-        yield connection.end();
+        await connection.end();
         console.log(`\n=== Summary ===`);
         console.log(`Total records processed: ${totalRecordsProcessed}`);
         console.log(`Total duplicates skipped: ${totalDuplicatesSkipped}`);
@@ -598,5 +589,5 @@ const processExcelFiles = (req, res) => __awaiter(void 0, void 0, void 0, functi
             error: error instanceof Error ? error.message : "Unknown error",
         });
     }
-});
+};
 exports.processExcelFiles = processExcelFiles;

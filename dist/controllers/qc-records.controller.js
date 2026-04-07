@@ -32,15 +32,6 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -52,6 +43,7 @@ const axios_1 = __importDefault(require("axios"));
 const db_1 = __importDefault(require("../database/db"));
 const env_1 = require("../config/env");
 const mail_controller_1 = require("./mail.controller");
+const date_formatter_1 = require("../utils/date-formatter");
 const qc_helpers_1 = require("../utils/qc-helpers");
 const qc_workflow_service_1 = require("../services/qc-workflow.service");
 const cloudinary_utils_1 = require("../utils/cloudinary-utils");
@@ -70,7 +62,7 @@ function sanitizeFileUrl(raw) {
         return raw.substring(httpPlainIdx);
     return raw;
 }
-const generateCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const generateCustomSample = async (req, res) => {
     var _a, _b, _c;
     const { tracker_id, sampling_percentage } = req.body;
     if (!tracker_id) {
@@ -94,7 +86,7 @@ const generateCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
             tracker_id,
             logged_in_user_id,
         });
-        const pythonResponse = yield axios_1.default.post(pythonUrl, {
+        const pythonResponse = await axios_1.default.post(pythonUrl, {
             tracker_id,
             logged_in_user_id,
         });
@@ -122,7 +114,7 @@ const generateCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         }
         // 2. Fetch the file directly from Cloudinary URL into memory
         console.log(`[QC Service] Fetching file from: ${originalFileUrl}`);
-        const fileResponse = yield axios_1.default.get(originalFileUrl, {
+        const fileResponse = await axios_1.default.get(originalFileUrl, {
             responseType: "arraybuffer",
         });
         // fileResponse.data is a raw ArrayBuffer — use directly (ExcelJS.load expects ArrayBuffer)
@@ -131,13 +123,13 @@ const generateCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         const workbook = new exceljs_1.default.Workbook();
         const ext = path_1.default.extname(new URL(originalFileUrl).pathname).toLowerCase();
         if (ext === ".xlsx") {
-            yield workbook.xlsx.load(fileArrayBuffer);
+            await workbook.xlsx.load(fileArrayBuffer);
         }
         else if (ext === ".csv") {
             // ExcelJS CSV load requires a Readable stream; convert ArrayBuffer to Buffer first
-            const { Readable } = yield Promise.resolve().then(() => __importStar(require("stream")));
+            const { Readable } = await Promise.resolve().then(() => __importStar(require("stream")));
             const stream = Readable.from(Buffer.from(fileArrayBuffer));
-            yield workbook.csv.read(stream);
+            await workbook.csv.read(stream);
         }
         else {
             return res
@@ -215,9 +207,9 @@ const generateCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
             message: error instanceof Error ? error.message : "Internal server error",
         });
     }
-});
+};
 exports.generateCustomSample = generateCustomSample;
-const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const downloadCustomSample = async (req, res) => {
     var _a, _b;
     const { tracker_id } = req.params;
     const { logged_in_user_id, sampling_percentage } = req.query;
@@ -236,7 +228,7 @@ const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         const pythonUrl = env_1.PYTHON_URL.endsWith("/")
             ? `${env_1.PYTHON_URL}tracker/view`
             : `${env_1.PYTHON_URL}/tracker/view`;
-        const pythonResponse = yield axios_1.default.post(pythonUrl, {
+        const pythonResponse = await axios_1.default.post(pythonUrl, {
             tracker_id,
             logged_in_user_id,
         });
@@ -255,7 +247,7 @@ const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         }
         const originalFileUrl = sanitizeFileUrl(tracker.tracker_file);
         // 2. Stream the file directly from Cloudinary
-        const fileResponse = yield axios_1.default.get(originalFileUrl, {
+        const fileResponse = await axios_1.default.get(originalFileUrl, {
             responseType: "arraybuffer",
         });
         const fileArrayBuffer = fileResponse.data;
@@ -263,12 +255,12 @@ const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         const workbook = new exceljs_1.default.Workbook();
         const ext = path_1.default.extname(new URL(originalFileUrl).pathname).toLowerCase();
         if (ext === ".xlsx") {
-            yield workbook.xlsx.load(fileArrayBuffer);
+            await workbook.xlsx.load(fileArrayBuffer);
         }
         else if (ext === ".csv") {
-            const { Readable } = yield Promise.resolve().then(() => __importStar(require("stream")));
+            const { Readable } = await Promise.resolve().then(() => __importStar(require("stream")));
             const stream = Readable.from(Buffer.from(fileArrayBuffer));
-            yield workbook.csv.read(stream);
+            await workbook.csv.read(stream);
         }
         else {
             return res
@@ -329,7 +321,7 @@ const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
         const downloadFileName = `${baseName}_${percentage}_percent_sample${ext}`;
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", `attachment; filename="${downloadFileName}"`);
-        yield sampleWorkbook.xlsx.write(res);
+        await sampleWorkbook.xlsx.write(res);
         res.end();
     }
     catch (error) {
@@ -341,22 +333,22 @@ const downloadCustomSample = (req, res) => __awaiter(void 0, void 0, void 0, fun
             });
         }
     }
-});
+};
 exports.downloadCustomSample = downloadCustomSample;
-const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const saveQCRecord = async (req, res) => {
     console.log(`[QC Record] POST /save received. Body keys:`, Object.keys(req.body));
     console.log(`[QC Record] tracker_id value:`, req.body.tracker_id);
     const { assistant_manager_id, qa_user_id, agent_id, project_id, task_id, tracker_id, whole_file_path, date_of_file_submission, qc_score, status, qc_status, file_record_count, qc_generated_count, qc_file_records, error_list, sampling_percentage, } = req.body;
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     const formattedSubmissionDate = (0, qc_helpers_1.formatSubmissionDate)(date_of_file_submission);
     try {
-        yield connection.beginTransaction();
+        await connection.beginTransaction();
         let finalQCStatus = status === "regular" ? "completed" : qc_status || null;
         // 1. Generate and Upload Sample if records are provided
         let qc_file_path = null;
         if (qc_file_records && whole_file_path) {
             const folderName = status === "rework" ? "hrms/qc_rework_samples" : "hrms/qc_samples";
-            qc_file_path = yield (0, qc_helpers_1.uploadSampleToCloudinary)(qc_file_records, whole_file_path, sampling_percentage || 10, folderName);
+            qc_file_path = await (0, qc_helpers_1.uploadSampleToCloudinary)(qc_file_records, whole_file_path, sampling_percentage || 10, folderName);
         }
         // 2. Check for existing record to support iterative rework for the SAME tracker
         console.log(`[QC Record] Checking for existing record with tracker_id: ${tracker_id}`);
@@ -365,7 +357,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
       WHERE tracker_id = ?
       LIMIT 1
     `;
-        const [existingRows] = yield connection.execute(checkExistingSql, [
+        const [existingRows] = await connection.execute(checkExistingSql, [
             tracker_id !== null && tracker_id !== void 0 ? tracker_id : null,
         ]);
         console.log(`[QC Record] Found ${existingRows.length} existing record(s)`);
@@ -433,7 +425,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         `;
                 updateValues.push(qcId);
                 console.log(`[QC Record] Updating fields:`, updateFields);
-                yield connection.execute(updateSql, updateValues);
+                await connection.execute(updateSql, updateValues);
             }
         }
         else {
@@ -446,7 +438,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
           error_list, qc_file_path, tracker_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-            const [result] = yield connection.execute(insertSql, [
+            const [result] = await connection.execute(insertSql, [
                 assistant_manager_id !== null && assistant_manager_id !== void 0 ? assistant_manager_id : null,
                 qa_user_id !== null && qa_user_id !== void 0 ? qa_user_id : null,
                 agent_id !== null && agent_id !== void 0 ? agent_id : null,
@@ -466,18 +458,18 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             qcId = result.insertId;
         }
         // 3. Fetch Details for Email Notification
-        const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, agent_id, project_id, task_id, qa_user_id);
+        const emailData = await (0, qc_helpers_1.getQCRecordEmailDetails)(connection, agent_id, project_id, task_id, qa_user_id);
         // 4. Handle Specialized Workflows (Workflow Factory/Service)
         // First check if this is a rework submission that should update rework_history instead of qc_records
         if (status === "regular") {
             // Check if there's an active rework cycle for this record
-            const [activeReworkRows] = yield connection.execute(`SELECT qc_rework_id, rework_count FROM qc_rework_history
+            const [activeReworkRows] = await connection.execute(`SELECT qc_rework_id, rework_count FROM qc_rework_history
          WHERE qc_record_id = ? AND (rework_file_qc_status IS NULL OR rework_file_qc_status = 'pending')
          ORDER BY rework_count DESC LIMIT 1`, [qcId]);
             if (activeReworkRows.length > 0) {
                 // This is a rework evaluation - update rework_history instead of qc_records
                 console.log(`[QC Record] Regular submission for active rework cycle ${activeReworkRows[0].rework_count}`);
-                finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, qcId, status, {
+                finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, qcId, status, {
                     whole_file_path,
                     qc_file_path,
                     error_list,
@@ -489,7 +481,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             else {
                 // This is a regular first-time QC evaluation - update qc_records
                 console.log(`[QC Record] Regular submission for initial QC evaluation`);
-                finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleRegularWorkflow(connection, qcId, status, existingRows.length > 0 ? existingRows[0].qc_status : null, {
+                finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleRegularWorkflow(connection, qcId, status, existingRows.length > 0 ? existingRows[0].qc_status : null, {
                     whole_file_path,
                     qc_file_path,
                     error_list,
@@ -500,7 +492,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             }
         }
         else if (status === "correction") {
-            finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, qcId, status, {
+            finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, qcId, status, {
                 qc_file_path,
                 whole_file_path, // Add this missing parameter
                 error_list,
@@ -508,7 +500,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             });
         }
         else if (status === "rework") {
-            finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, qcId, status, {
+            finalQCStatus = await qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, qcId, status, {
                 whole_file_path,
                 qc_file_path,
                 error_list,
@@ -519,11 +511,11 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // 4b. Run status-transition side-effects (tracker_records reset)
         if (status === "rework" || status === "correction") {
-            yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, status, agent_id, project_id, task_id, tracker_id || null, qcId, whole_file_path);
+            await (0, qc_helpers_1.handleQCStatusTransitions)(connection, status, agent_id, project_id, task_id, tracker_id || null, qcId, whole_file_path);
         }
         // Update the final status if it was changed by the workflow (e.g. from correction to completed)
         if (finalQCStatus !== (status === "regular" ? "completed" : qc_status || null)) {
-            yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, qcId]);
+            await connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, qcId]);
         }
         // 5. Update qc_status in task_work_tracker
         if (tracker_id) {
@@ -532,10 +524,10 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         SET qc_status = 1 
         WHERE tracker_id = ?
       `;
-            yield connection.execute(updateTrackerStatusSql, [tracker_id]);
+            await connection.execute(updateTrackerStatusSql, [tracker_id]);
             console.log(`[QC Service] Updated qc_status to 1 for tracker_id: ${tracker_id}`);
         }
-        yield connection.commit();
+        await connection.commit();
         // 6. Send Background Email (Async)
         if (emailData) {
             const submission_time = date_of_file_submission
@@ -569,7 +561,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
     catch (error) {
         if (connection)
-            yield connection.rollback();
+            await connection.rollback();
         console.error("Error saving QC record:", error);
         return res
             .status(500)
@@ -577,13 +569,13 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
     finally {
         if (connection)
-            yield connection.end();
+            await connection.end();
     }
-});
+};
 exports.saveQCRecord = saveQCRecord;
-const getQCRecordById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getQCRecordById = async (req, res) => {
     const { id } = req.params;
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
         const sql = `
       SELECT 
@@ -601,7 +593,7 @@ const getQCRecordById = (req, res) => __awaiter(void 0, void 0, void 0, function
       LEFT JOIN task t ON q.task_id = t.task_id
       WHERE q.id = ?
     `;
-        const [rows] = yield connection.execute(sql, [id]);
+        const [rows] = await connection.execute(sql, [id]);
         if (rows.length === 0) {
             return res
                 .status(404)
@@ -616,22 +608,22 @@ const getQCRecordById = (req, res) => __awaiter(void 0, void 0, void 0, function
             .json({ success: false, message: "Internal server error" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.getQCRecordById = getQCRecordById;
-const updateQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const updateQCRecord = async (req, res) => {
     const { id } = req.params;
     console.log(`[QC Record] PUT /update/${id} received.`);
     const { qc_score, status, error_score, error_list } = req.body;
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
         const sql = `
       UPDATE qc_records 
       SET qc_score = ?, status = ?, error_list = ?
       WHERE id = ?
     `;
-        yield connection.execute(sql, [
+        await connection.execute(sql, [
             qc_score,
             status,
             JSON.stringify(error_list),
@@ -648,15 +640,15 @@ const updateQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function*
             .json({ success: false, message: "Internal server error" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.updateQCRecord = updateQCRecord;
-const deleteQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteQCRecord = async (req, res) => {
     const { id } = req.params;
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
-        yield connection.execute("DELETE FROM qc_records WHERE id = ?", [id]);
+        await connection.execute("DELETE FROM qc_records WHERE id = ?", [id]);
         return res
             .status(200)
             .json({ success: true, message: "QC record deleted successfully" });
@@ -668,13 +660,13 @@ const deleteQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function*
             .json({ success: false, message: "Internal server error" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.deleteQCRecord = deleteQCRecord;
-const getQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getQCRecords = async (req, res) => {
     const { logged_in_user_id } = req.query;
-    const connection = yield (0, db_1.default)();
+    const connection = await (0, db_1.default)();
     try {
         let sql = `
       SELECT 
@@ -697,8 +689,10 @@ const getQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             queryParams.push(logged_in_user_id);
         }
         sql += ` ORDER BY q.created_at DESC`;
-        const [rows] = yield connection.execute(sql, queryParams);
-        return res.status(200).json({ success: true, data: rows });
+        const [rows] = await connection.execute(sql, queryParams);
+        // Format dates in the response
+        const formattedRows = (0, date_formatter_1.formatDatesInRows)(rows, ['created_at', 'updated_at', 'date_of_file_submission']);
+        return res.status(200).json({ success: true, data: formattedRows });
     }
     catch (error) {
         console.error("Error fetching QC records:", error);
@@ -707,11 +701,11 @@ const getQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             .json({ success: false, message: "Internal server error" });
     }
     finally {
-        yield connection.end();
+        await connection.end();
     }
-});
+};
 exports.getQCRecords = getQCRecords;
-const agentUploadCorrection = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const agentUploadCorrection = async (req, res) => {
     const mreq = req;
     const { qcId, type, logged_in_user_id } = mreq.body;
     if (!mreq.file) {
@@ -728,12 +722,12 @@ const agentUploadCorrection = (req, res) => __awaiter(void 0, void 0, void 0, fu
     const fileName = `fixed_${type}_${qcId}_${Date.now()}${path_1.default.extname(mreq.file.originalname)}`;
     let connection;
     try {
-        const uploadRes = yield (0, cloudinary_utils_1.uploadBufferToCloudinary)(mreq.file.buffer, folder, fileName);
+        const uploadRes = await (0, cloudinary_utils_1.uploadBufferToCloudinary)(mreq.file.buffer, folder, fileName);
         const fileUrl = uploadRes.secure_url;
-        connection = yield (0, db_1.default)();
-        yield connection.beginTransaction();
-        yield qc_workflow_service_1.QCWorkflowService.recordAgentUpload(connection, Number(qcId), type, fileUrl);
-        yield connection.commit();
+        connection = await (0, db_1.default)();
+        await connection.beginTransaction();
+        await qc_workflow_service_1.QCWorkflowService.recordAgentUpload(connection, Number(qcId), type, fileUrl);
+        await connection.commit();
         return res.status(200).json({
             success: true,
             message: "File uploaded and status updated successfully",
@@ -742,7 +736,7 @@ const agentUploadCorrection = (req, res) => __awaiter(void 0, void 0, void 0, fu
     }
     catch (error) {
         if (connection)
-            yield connection.rollback();
+            await connection.rollback();
         console.error("Error in agentUploadCorrection:", error);
         return res.status(500).json({
             success: false,
@@ -751,7 +745,7 @@ const agentUploadCorrection = (req, res) => __awaiter(void 0, void 0, void 0, fu
     }
     finally {
         if (connection)
-            yield connection.end();
+            await connection.end();
     }
-});
+};
 exports.agentUploadCorrection = agentUploadCorrection;

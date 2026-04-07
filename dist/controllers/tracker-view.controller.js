@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -20,7 +11,7 @@ const exceljs_1 = __importDefault(require("exceljs"));
 const env_1 = require("../config/env");
 const db_1 = require("../database/db");
 const path_resolver_1 = require("../utils/path-resolver");
-const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getTrackerData = async (req, res) => {
     try {
         if (!env_1.PYTHON_URL) {
             return res.status(500).json({
@@ -34,7 +25,7 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const url = env_1.PYTHON_URL.endsWith("/")
             ? `${env_1.PYTHON_URL}tracker/view`
             : `${env_1.PYTHON_URL}/tracker/view`;
-        const response = yield axios_1.default.post(url, pythonRequestBody);
+        const response = await axios_1.default.post(url, pythonRequestBody);
         if (response.status !== 200) {
             return res.status(500).json({
                 success: false,
@@ -45,7 +36,7 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const trackersWithFiles = trackerData.data.trackers.filter((tracker) => tracker.tracker_file);
         console.log(`Found ${trackersWithFiles.length} trackers with files`);
         // Get database connection to fetch task information
-        const connection = yield (0, db_1.get_db_connection)();
+        const connection = await (0, db_1.get_db_connection)();
         // Add task information (including important_columns) and agent_id to each tracker
         for (const tracker of trackersWithFiles) {
             // Map user_id to agent_id for QC form compatibility
@@ -53,7 +44,7 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
                 tracker.agent_id = tracker.user_id;
             }
             try {
-                const [taskRows] = (yield connection.execute("SELECT task_id, task_name, important_columns FROM task WHERE task_id = ?", [tracker.task_id]));
+                const [taskRows] = (await connection.execute("SELECT task_id, task_name, important_columns FROM task WHERE task_id = ?", [tracker.task_id]));
                 if (taskRows.length > 0) {
                     const task = taskRows[0];
                     let importantColumns = [];
@@ -89,7 +80,7 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
                 };
             }
         }
-        yield connection.end();
+        await connection.end();
         // Display basic file information (no hash generation)
         for (const tracker of trackersWithFiles) {
             const filePath = tracker.tracker_file;
@@ -113,7 +104,7 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
                         console.log("Excel file detected - showing basic info...");
                         try {
                             const workbook = new exceljs_1.default.Workbook();
-                            yield workbook.xlsx.readFile(resolvedFilePath);
+                            await workbook.xlsx.readFile(resolvedFilePath);
                             console.log(`Worksheets found: ${workbook.worksheets.length}`);
                             workbook.eachSheet((worksheet, sheetId) => {
                                 console.log(`Sheet ${sheetId}: ${worksheet.name} (${worksheet.rowCount} rows × ${worksheet.columnCount} columns)`);
@@ -152,5 +143,5 @@ const getTrackerData = (req, res) => __awaiter(void 0, void 0, void 0, function*
             error: error instanceof Error ? error.message : "Unknown error",
         });
     }
-});
+};
 exports.getTrackerData = getTrackerData;

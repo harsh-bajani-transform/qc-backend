@@ -6,11 +6,12 @@ import axios from "axios";
 import get_db_connection from "../database/db";
 import { PYTHON_URL } from "../config/env";
 import { sendQCEmailInternal } from "./mail.controller";
+import { formatDatesInRows } from "../utils/date-formatter";
 import {
-  formatSubmissionDate,
   uploadSampleToCloudinary,
   getQCRecordEmailDetails,
   handleQCStatusTransitions,
+  formatSubmissionDate,
 } from "../utils/qc-helpers";
 import { QCWorkflowService } from "../services/qc-workflow.service";
 import { uploadBufferToCloudinary } from "../utils/cloudinary-utils";
@@ -788,7 +789,11 @@ export const getQCRecords = async (req: Request, res: Response) => {
     sql += ` ORDER BY q.created_at DESC`;
 
     const [rows] = await connection.execute(sql, queryParams);
-    return res.status(200).json({ success: true, data: rows });
+    
+    // Format dates in the response
+    const formattedRows = formatDatesInRows(rows as any[], ['created_at', 'updated_at', 'date_of_file_submission']);
+    
+    return res.status(200).json({ success: true, data: formattedRows });
   } catch (error) {
     console.error("Error fetching QC records:", error);
     return res
