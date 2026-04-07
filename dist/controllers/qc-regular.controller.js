@@ -50,8 +50,131 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             });
         }
         // Check if QC record already exists for this tracker
-        const [existingRows] = yield connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [tracker_id]);
+        const [existingRows] = yield connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [safeParams.tracker_id]);
         if (existingRows.length > 0) {
+            // Check if there's an active rework cycle for this record
+            const [activeReworkRows] = yield connection.execute(`SELECT qc_rework_id, rework_count FROM qc_rework_history
+         WHERE qc_record_id = ? AND (rework_file_qc_status IS NULL OR rework_file_qc_status = 'pending')
+         ORDER BY rework_count DESC LIMIT 1`, [existingRows[0].id]);
+            if (activeReworkRows.length > 0) {
+                // This is a rework evaluation - update rework_history instead of qc_records
+                console.log(`[QC Regular] Regular submission for active rework cycle ${activeReworkRows[0].rework_count}`);
+                const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, existingRows[0].id, "regular", {
+                    whole_file_path: safeParams.whole_file_path,
+                    qc_file_path: safeParams.qc_file_path,
+                    error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
+                    file_record_count: safeParams.file_record_count,
+                    qc_generated_count: safeParams.data_generated_count,
+                    qc_score: safeParams.qc_score,
+                });
+                // Run status-transition side-effects
+                yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
+                // Update the final status if it was changed by the workflow
+                if (finalQCStatus !== existingRows[0].qc_status) {
+                    yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
+                }
+                // Update qc_status in task_work_tracker
+                if (safeParams.tracker_id) {
+                    const updateTrackerStatusSql = `
+            UPDATE task_work_tracker 
+            SET qc_status = 1 
+            WHERE tracker_id = ?
+          `;
+                    yield connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+                    console.log(`[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`);
+                }
+                yield connection.commit();
+                // Send Background Email (Async)
+                const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
+                if (emailData) {
+                    const submission_time = safeParams.date_of_file_submission
+                        ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                        })
+                        : "N/A";
+                    (0, mail_controller_1.sendQCEmailInternal)({
+                        agent_email: emailData.agent_email,
+                        status: "regular",
+                        project_name: emailData.project_name,
+                        task_name: emailData.task_name,
+                        qc_agent_name: emailData.qa_name,
+                        qc_score: safeParams.qc_score,
+                        error_count: safeParams.error_list ? JSON.parse(safeParams.error_list).length || 0 : 0,
+                        error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
+                        comments: "",
+                        file_path: safeParams.qc_file_path,
+                        submission_time,
+                    }).catch((err) => console.error("[QC Regular] Asynchronous email failed:", err));
+                }
+                return res.status(200).json({
+                    success: true,
+                    message: "Rework QC record saved successfully",
+                    data: { id: existingRows[0].id },
+                });
+            }
+            // Check if there's an active correction cycle for this record
+            const [activeCorrectionRows] = yield connection.execute(`SELECT qc_correction_id, correction_count FROM qc_correction_history
+         WHERE qc_record_id = ? AND (correction_file_qc_status IS NULL OR correction_file_qc_status = 'pending')
+         ORDER BY correction_count DESC LIMIT 1`, [existingRows[0].id]);
+            if (activeCorrectionRows.length > 0) {
+                // This is a correction evaluation - update correction_history instead of qc_records
+                console.log(`[QC Regular] Regular submission for active correction cycle ${activeCorrectionRows[0].correction_count}`);
+                const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, existingRows[0].id, "regular", {
+                    qc_file_path: safeParams.qc_file_path,
+                    whole_file_path: safeParams.whole_file_path,
+                    error_list: safeParams.error_list ? JSON.parse(safeParams.error_list) : [],
+                    // no qc_score — correction is status-only
+                });
+                // Run status-transition side-effects
+                yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "regular", safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.tracker_id, existingRows[0].id, safeParams.whole_file_path);
+                // Update the final status if it was changed by the workflow
+                if (finalQCStatus !== existingRows[0].qc_status) {
+                    yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, existingRows[0].id]);
+                }
+                // Update qc_status in task_work_tracker
+                if (safeParams.tracker_id) {
+                    const updateTrackerStatusSql = `
+            UPDATE task_work_tracker 
+            SET qc_status = 1 
+            WHERE tracker_id = ?
+          `;
+                    yield connection.execute(updateTrackerStatusSql, [safeParams.tracker_id]);
+                    console.log(`[QC Regular] Updated qc_status to 1 for tracker_id: ${safeParams.tracker_id}`);
+                }
+                yield connection.commit();
+                // Send Background Email (Async)
+                const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
+                if (emailData) {
+                    // Fetch QC score from qc_records table for this correction record
+                    const [qcRecordRows] = yield connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [existingRows[0].id]);
+                    const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
+                    const submission_time = safeParams.date_of_file_submission
+                        ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                        })
+                        : "N/A";
+                    (0, mail_controller_1.sendQCEmailInternal)({
+                        agent_name: emailData.agent_name,
+                        agent_email: emailData.agent_email,
+                        project_name: emailData.project_name,
+                        task_name: emailData.task_name,
+                        qa_name: emailData.qa_name,
+                        status: "correction", // Specify this is a correction completion
+                        qc_score: qcScore, // Fetch QC score from qc_records table
+                        file_path: safeParams.qc_file_path, // Send sample file instead of whole file
+                        submission_time,
+                    }).catch((err) => console.error("[QC Regular] Asynchronous email failed:", err));
+                }
+                return res.status(200).json({
+                    success: true,
+                    message: "Correction QC record saved successfully",
+                    data: { id: existingRows[0].id },
+                });
+            }
             yield connection.rollback();
             return res.status(400).json({
                 success: false,

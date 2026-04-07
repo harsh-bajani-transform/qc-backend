@@ -35,14 +35,40 @@ const saveReworkQC = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // Check if QC record exists for this tracker
         const [existingRows] = yield connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [tracker_id]);
+        let qcId;
+        let originalQCStatus;
         if (existingRows.length === 0) {
-            yield connection.rollback();
-            return res.status(400).json({
-                success: false,
-                message: "No QC record found for this tracker. Use regular endpoint instead.",
-            });
+            // Create initial QC record if none exists
+            console.log(`[QC Rework] No existing record found for tracker_id: ${tracker_id}. Creating initial record.`);
+            const [insertResult] = yield connection.execute(`INSERT INTO qc_records (
+          assistant_manager_id, qa_user_id, agent_id, project_id, task_id,
+          whole_file_path, date_of_file_submission, qc_score, status, qc_status,
+          file_record_count, qc_generated_count,
+          error_list, qc_file_path, tracker_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+                assistant_manager_id || null,
+                qa_user_id || null,
+                agent_id || null,
+                project_id || null,
+                task_id || null,
+                whole_file_path || null,
+                date_of_file_submission || null,
+                qc_score || null,
+                'rework',
+                'pending',
+                file_record_count || 0,
+                data_generated_count || 0,
+                error_list ? JSON.stringify(error_list) : null,
+                qc_file_path || null,
+                tracker_id || null,
+            ]);
+            qcId = insertResult.insertId;
+            originalQCStatus = 'pending'; // Default status for new records
         }
-        const qcId = existingRows[0].id;
+        else {
+            qcId = existingRows[0].id;
+            originalQCStatus = existingRows[0].qc_status;
+        }
         // Handle rework workflow
         const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleReworkWorkflow(connection, qcId, "rework", {
             whole_file_path: whole_file_path || null,
@@ -53,9 +79,9 @@ const saveReworkQC = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             qc_score: qc_score || 0,
         });
         // Run status-transition side-effects
-        yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "rework", agent_id, project_id, task_id, whole_file_path, tracker_id, qcId);
+        yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "rework", agent_id, project_id, task_id, tracker_id, qcId, whole_file_path);
         // Update the final status if it was changed by the workflow
-        if (finalQCStatus !== existingRows[0].qc_status) {
+        if (finalQCStatus !== originalQCStatus) {
             yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, qcId]);
         }
         // Update qc_status in task_work_tracker
@@ -235,6 +261,7 @@ const getReworkQCRecords = (req, res) => __awaiter(void 0, void 0, void 0, funct
         t.task_name,
         rh.rework_count,
         rh.rework_status,
+        rh.rework_status as review_status,
         rh.rework_file_path,
         rh.rework_file_qc_status,
         rh.rework_qc_score

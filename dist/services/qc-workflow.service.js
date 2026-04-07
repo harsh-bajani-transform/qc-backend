@@ -73,7 +73,7 @@ class QCWorkflowService {
          SET correction_error_list     = ?,
              correction_status         = 'completed',
              correction_file_qc_status = 'completed'
-         WHERE qc_correction_id = ?`, [JSON.stringify(data.error_list), activeRow.qc_correction_id]);
+         WHERE qc_correction_id = ?`, [JSON.stringify(data.error_list || []), activeRow.qc_correction_id]);
             }
             else {
                 // No active row found (either first time marking correction, or history was purged)
@@ -87,14 +87,18 @@ class QCWorkflowService {
            qc_record_id,
            qc_file_path,
            correction_file_path,
+           correction_file_qc_status,
            correction_count,
            correction_status,
-           correction_error_list,
-           correction_file_qc_status
-         ) VALUES (?, ?, NULL, ?, 'correction', NULL, NULL)`, [
+           correction_error_list
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
                     qcId,
-                    data.qc_file_path, // For correction, we send the sample/marked file to agent
+                    data.qc_file_path || null, // For correction, we send the sample/marked file to agent
+                    null, // correction_file_path (will be updated when agent uploads)
+                    null, // correction_file_qc_status (will be updated when agent uploads)
                     nextCount,
+                    'correction',
+                    null // correction_error_list (will be updated when QA reviews)
                 ]);
                 console.log(`[QC Workflow] Correction (Cycle ${nextCount}): New placeholder started. Awaiting agent upload.`);
                 return "correction";
@@ -193,7 +197,7 @@ class QCWorkflowService {
                 }
                 // 2. Update the row
                 yield connection.execute(`UPDATE qc_rework_history 
-         SET rework_file_path = ?, rework_status = 'completed', rework_file_qc_status = 'pending'
+         SET rework_file_path = ?, rework_status = 'rework', rework_file_qc_status = 'pending'
          WHERE qc_rework_id = ?`, [fileUrl, openRows[0].qc_rework_id]);
             }
             else {
@@ -206,7 +210,7 @@ class QCWorkflowService {
                 }
                 // 2. Update the row
                 yield connection.execute(`UPDATE qc_correction_history 
-         SET correction_file_path = ?, correction_status = 'submitted', correction_file_qc_status = 'pending'
+         SET correction_file_path = ?, correction_status = 'correction', correction_file_qc_status = 'pending'
          WHERE qc_correction_id = ?`, [fileUrl, openRows[0].qc_correction_id]);
             }
             // 3. Update the main record status to 'pending' so QA knows to review again

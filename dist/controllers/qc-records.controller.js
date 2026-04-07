@@ -501,8 +501,8 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         else if (status === "correction") {
             finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, qcId, status, {
-                whole_file_path,
                 qc_file_path,
+                whole_file_path, // Add this missing parameter
                 error_list,
                 // no qc_score — correction is status-only
             });
@@ -519,7 +519,7 @@ const saveQCRecord = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // 4b. Run status-transition side-effects (tracker_records reset)
         if (status === "rework" || status === "correction") {
-            yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, status, agent_id, project_id, task_id, whole_file_path, tracker_id || null, qcId);
+            yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, status, agent_id, project_id, task_id, tracker_id || null, qcId, whole_file_path);
         }
         // Update the final status if it was changed by the workflow (e.g. from correction to completed)
         if (finalQCStatus !== (status === "regular" ? "completed" : qc_status || null)) {

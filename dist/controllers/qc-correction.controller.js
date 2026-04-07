@@ -24,7 +24,7 @@ const saveCorrectionQC = (req, res) => __awaiter(void 0, void 0, void 0, functio
     try {
         yield connection.beginTransaction();
         // Extract form data
-        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, file_record_count, data_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
+        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
         // Validate required fields
         if (!logged_in_user_id || !tracker_id || !qa_user_id || !project_id || !task_id) {
             yield connection.rollback();
@@ -35,14 +35,40 @@ const saveCorrectionQC = (req, res) => __awaiter(void 0, void 0, void 0, functio
         }
         // Check if QC record exists for this tracker
         const [existingRows] = yield connection.execute("SELECT id, qc_status FROM qc_records WHERE tracker_id = ?", [tracker_id]);
+        let qcId;
+        let originalQCStatus;
         if (existingRows.length === 0) {
-            yield connection.rollback();
-            return res.status(400).json({
-                success: false,
-                message: "No QC record found for this tracker. Use regular endpoint instead.",
-            });
+            // Create initial QC record if none exists
+            console.log(`[QC Correction] No existing record found for tracker_id: ${tracker_id}. Creating initial record.`);
+            const [insertResult] = yield connection.execute(`INSERT INTO qc_records (
+          assistant_manager_id, qa_user_id, agent_id, project_id, task_id,
+          whole_file_path, date_of_file_submission, qc_score, status, qc_status,
+          file_record_count, qc_generated_count,
+          error_list, qc_file_path, tracker_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+                assistant_manager_id || null,
+                qa_user_id || null,
+                agent_id || null,
+                project_id || null,
+                task_id || null,
+                whole_file_path || null,
+                date_of_file_submission || null,
+                qc_score || null, // Use actual qc_score from payload
+                'correction',
+                'pending',
+                file_record_count || 0,
+                data_generated_count || 0,
+                error_list ? JSON.stringify(error_list) : null,
+                qc_file_path || null,
+                tracker_id || null,
+            ]);
+            qcId = insertResult.insertId;
+            originalQCStatus = 'pending'; // Default status for new records
         }
-        const qcId = existingRows[0].id;
+        else {
+            qcId = existingRows[0].id;
+            originalQCStatus = existingRows[0].qc_status;
+        }
         // Handle correction workflow
         const finalQCStatus = yield qc_workflow_service_1.QCWorkflowService.handleCorrectionWorkflow(connection, qcId, "correction", {
             whole_file_path: whole_file_path || null,
@@ -50,9 +76,10 @@ const saveCorrectionQC = (req, res) => __awaiter(void 0, void 0, void 0, functio
             error_list: error_list || [],
         });
         // Run status-transition side-effects
-        yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "correction", agent_id, project_id, task_id, whole_file_path, tracker_id, qcId);
+        yield (0, qc_helpers_1.handleQCStatusTransitions)(connection, "correction", agent_id, project_id, task_id, "", // whole_file_path not needed for correction flow
+        tracker_id, qcId);
         // Update the final status if it was changed by the workflow
-        if (finalQCStatus !== existingRows[0].qc_status) {
+        if (finalQCStatus !== originalQCStatus) {
             yield connection.execute("UPDATE qc_records SET qc_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [finalQCStatus, qcId]);
         }
         // Update qc_status in task_work_tracker
@@ -76,17 +103,20 @@ const saveCorrectionQC = (req, res) => __awaiter(void 0, void 0, void 0, functio
                     year: "numeric",
                 })
                 : "N/A";
+            // Fetch QC score from qc_records table for this correction record
+            const [qcRecordRows] = yield connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [qcId]);
+            const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
             (0, mail_controller_1.sendQCEmailInternal)({
                 agent_email: emailData.agent_email,
                 status: "correction",
                 project_name: emailData.project_name,
                 task_name: emailData.task_name,
                 qc_agent_name: emailData.qa_name,
-                qc_score: null, // No score for correction
+                qc_score: qcScore, // Fetch QC score from qc_records table
                 error_count: (error_list === null || error_list === void 0 ? void 0 : error_list.length) || 0,
                 error_list,
                 comments: comments || "",
-                file_path: whole_file_path,
+                file_path: qc_file_path, // Send sample file instead of whole file
                 submission_time,
             }).catch((err) => console.error("[QC Correction] Asynchronous email failed:", err));
         }
