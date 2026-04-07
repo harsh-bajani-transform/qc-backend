@@ -148,17 +148,25 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
                 if (emailData) {
                     // Fetch QC score and sample file path from correction history
-                    const [correctionHistoryRows] = yield connection.execute("SELECT qc_file_path FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1", [existingRows[0].id]);
+                    const [correctionHistoryRows] = yield connection.execute("SELECT qc_file_path, created_at FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1", [existingRows[0].id]);
                     const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
+                    const correctionCreatedAt = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].created_at : null;
                     const [qcRecordRows] = yield connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [existingRows[0].id]);
                     const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
-                    const submission_time = safeParams.date_of_file_submission
+                    // Use correction creation date if original submission date is not available
+                    const final_submission_time = safeParams.date_of_file_submission
                         ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "short",
                             year: "numeric",
                         })
-                        : "N/A";
+                        : correctionCreatedAt
+                            ? new Date(correctionCreatedAt).toLocaleDateString("en-IN", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                            })
+                            : "N/A";
                     (0, mail_controller_1.sendQCEmailInternal)({
                         agent_name: emailData.agent_name,
                         agent_email: emailData.agent_email,
@@ -168,7 +176,7 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                         status: "correction", // Specify this is a correction completion
                         qc_score: qcScore, // Fetch QC score from qc_records table
                         file_path: sampleFilePath, // Fetch sample file from correction history
-                        submission_time,
+                        submission_time: final_submission_time,
                     }).catch((err) => console.error("[QC Regular] Asynchronous email failed:", err));
                 }
                 return res.status(200).json({

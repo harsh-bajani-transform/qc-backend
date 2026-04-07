@@ -241,10 +241,11 @@ export const saveRegularQC = async (req: Request, res: Response) => {
         if (emailData) {
           // Fetch QC score and sample file path from correction history
           const [correctionHistoryRows]: any = await connection.execute(
-            "SELECT qc_file_path FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1",
+            "SELECT qc_file_path, created_at FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1",
             [existingRows[0].id]
           );
           const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
+          const correctionCreatedAt = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].created_at : null;
 
           const [qcRecordRows]: any = await connection.execute(
             "SELECT qc_score FROM qc_records WHERE id = ?",
@@ -252,8 +253,15 @@ export const saveRegularQC = async (req: Request, res: Response) => {
           );
           const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
 
-          const submission_time = safeParams.date_of_file_submission
+          // Use correction creation date if original submission date is not available
+          const final_submission_time = safeParams.date_of_file_submission
             ? new Date(safeParams.date_of_file_submission).toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+            : correctionCreatedAt
+            ? new Date(correctionCreatedAt).toLocaleDateString("en-IN", {
                 day: "2-digit",
                 month: "short",
                 year: "numeric",
@@ -269,7 +277,7 @@ export const saveRegularQC = async (req: Request, res: Response) => {
             status: "correction", // Specify this is a correction completion
             qc_score: qcScore, // Fetch QC score from qc_records table
             file_path: sampleFilePath, // Fetch sample file from correction history
-            submission_time,
+            submission_time: final_submission_time,
           }).catch((err: any) =>
             console.error("[QC Regular] Asynchronous email failed:", err),
           );
