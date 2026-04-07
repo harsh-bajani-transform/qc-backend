@@ -239,7 +239,13 @@ export const saveRegularQC = async (req: Request, res: Response) => {
         );
 
         if (emailData) {
-          // Fetch QC score from qc_records table for this correction record
+          // Fetch QC score and sample file path from correction history
+          const [correctionHistoryRows]: any = await connection.execute(
+            "SELECT qc_file_path FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1",
+            [existingRows[0].id]
+          );
+          const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
+
           const [qcRecordRows]: any = await connection.execute(
             "SELECT qc_score FROM qc_records WHERE id = ?",
             [existingRows[0].id]
@@ -262,7 +268,7 @@ export const saveRegularQC = async (req: Request, res: Response) => {
             qa_name: emailData.qa_name,
             status: "correction", // Specify this is a correction completion
             qc_score: qcScore, // Fetch QC score from qc_records table
-            file_path: safeParams.qc_file_path, // Send sample file instead of whole file
+            file_path: sampleFilePath, // Fetch sample file from correction history
             submission_time,
           }).catch((err: any) =>
             console.error("[QC Regular] Asynchronous email failed:", err),

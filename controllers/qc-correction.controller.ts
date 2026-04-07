@@ -154,7 +154,13 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
           })
         : "N/A";
 
-      // Fetch QC score from qc_records table for this correction record
+      // Fetch QC score and sample file path from correction history
+      const [correctionHistoryRows]: any = await connection.execute(
+        "SELECT qc_file_path FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1",
+        [qcId]
+      );
+      const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
+
       const [qcRecordRows]: any = await connection.execute(
         "SELECT qc_score FROM qc_records WHERE id = ?",
         [qcId]
@@ -171,7 +177,7 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
         error_count: error_list?.length || 0,
         error_list,
         comments: comments || "",
-        file_path: qc_file_path, // Send sample file instead of whole file
+        file_path: sampleFilePath, // Fetch sample file from correction history
         submission_time,
       }).catch((err: any) =>
         console.error("[QC Correction] Asynchronous email failed:", err),

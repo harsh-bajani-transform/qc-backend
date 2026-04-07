@@ -147,7 +147,9 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 // Send Background Email (Async)
                 const emailData = yield (0, qc_helpers_1.getQCRecordEmailDetails)(connection, safeParams.agent_id, safeParams.project_id, safeParams.task_id, safeParams.qa_user_id);
                 if (emailData) {
-                    // Fetch QC score from qc_records table for this correction record
+                    // Fetch QC score and sample file path from correction history
+                    const [correctionHistoryRows] = yield connection.execute("SELECT qc_file_path FROM qc_correction_history WHERE qc_record_id = ? ORDER BY correction_count DESC LIMIT 1", [existingRows[0].id]);
+                    const sampleFilePath = correctionHistoryRows.length > 0 ? correctionHistoryRows[0].qc_file_path : null;
                     const [qcRecordRows] = yield connection.execute("SELECT qc_score FROM qc_records WHERE id = ?", [existingRows[0].id]);
                     const qcScore = qcRecordRows.length > 0 ? qcRecordRows[0].qc_score : null;
                     const submission_time = safeParams.date_of_file_submission
@@ -165,7 +167,7 @@ const saveRegularQC = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                         qa_name: emailData.qa_name,
                         status: "correction", // Specify this is a correction completion
                         qc_score: qcScore, // Fetch QC score from qc_records table
-                        file_path: safeParams.qc_file_path, // Send sample file instead of whole file
+                        file_path: sampleFilePath, // Fetch sample file from correction history
                         submission_time,
                     }).catch((err) => console.error("[QC Regular] Asynchronous email failed:", err));
                 }
