@@ -270,7 +270,7 @@ export class QCWorkflowService {
       // 2. Update the row
       await connection.execute(
         `UPDATE qc_rework_history 
-         SET rework_file_path = ?, rework_status = 'submitted', rework_file_qc_status = 'pending'
+         SET rework_file_path = ?, rework_status = 'rework', rework_file_qc_status = 'pending'
          WHERE qc_rework_id = ?`,
         [fileUrl, openRows[0].qc_rework_id]
       );
@@ -290,7 +290,7 @@ export class QCWorkflowService {
       // 2. Update the row
       await connection.execute(
         `UPDATE qc_correction_history 
-         SET correction_file_path = ?, correction_status = 'submitted', correction_file_qc_status = 'pending'
+         SET correction_file_path = ?, correction_status = 'correction', correction_file_qc_status = 'pending'
          WHERE qc_correction_id = ?`,
         [fileUrl, openRows[0].qc_correction_id]
       );
