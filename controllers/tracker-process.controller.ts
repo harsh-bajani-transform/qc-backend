@@ -261,11 +261,12 @@ export const processExcelFiles = async (req: Request, res: Response) => {
           // Only proceed with insertion if no duplicates found AND not in validation mode
           if (!validateOnly) {
             for (const { hashValue, record } of allRowHashes) {
-              // Using INSERT IGNORE to skip existing records if duplicate check is disabled
-              const insertQuery = `INSERT IGNORE INTO tracker_records /* VERIFIED_VERSION_2 */
+              // When duplicate check is OFF, use INSERT IGNORE to allow duplicates
+              // When duplicate check is ON, we've already validated no duplicates exist, so INSERT is safe
+              const insertQuery = `INSERT ${duplicateCheckEnabled ? '' : 'IGNORE'} INTO tracker_records /* VERIFIED_VERSION_2 */
                  (user_id, project_id, task_id, record_data, hash_value, status, file_path) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`;
-                 
+                  
               const [result] = await connection.execute(insertQuery, [
                   userId,
                   projectId,
