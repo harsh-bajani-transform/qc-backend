@@ -159,7 +159,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
             const hashInput = colsToUse
               .map((col: string) => {
                 const matchingHeader = headers.find(
-                  (h) => h.toLowerCase().trim() === col.toLowerCase().trim(),
+                  (h) => h && col && h.toLowerCase().trim() === col.toLowerCase().trim(),
                 );
                 return matchingHeader ? (record[matchingHeader] ?? "") : "";
               })
@@ -563,7 +563,7 @@ export const processExcelFiles = async (req: Request, res: Response) => {
                         // Handle case-insensitive column matching
                         const matchingHeader = headers.find(
                           (h) =>
-                            h.toLowerCase().trim() === col.toLowerCase().trim(),
+                            h && col && h.toLowerCase().trim() === col.toLowerCase().trim(),
                         );
                         return matchingHeader
                           ? record[matchingHeader] || ""
