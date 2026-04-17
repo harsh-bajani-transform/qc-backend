@@ -338,6 +338,8 @@ exports.downloadCustomSample = downloadCustomSample;
 const saveQCRecord = async (req, res) => {
     console.log(`[QC Record] POST /save received. Body keys:`, Object.keys(req.body));
     console.log(`[QC Record] tracker_id value:`, req.body.tracker_id);
+    console.log(`[QC Record] qc_generated_count value:`, req.body.qc_generated_count);
+    console.log(`[QC Record] qc_generated_count type:`, typeof req.body.qc_generated_count);
     const { assistant_manager_id, qa_user_id, agent_id, project_id, task_id, tracker_id, whole_file_path, date_of_file_submission, qc_score, status, qc_status, file_record_count, qc_generated_count, qc_file_records, error_list, sampling_percentage, } = req.body;
     const connection = await (0, db_1.default)();
     const formattedSubmissionDate = (0, qc_helpers_1.formatSubmissionDate)(date_of_file_submission);
@@ -399,7 +401,7 @@ const saveQCRecord = async (req, res) => {
                 updateFields.push('file_record_count = ?');
                 updateValues.push(file_record_count);
             }
-            if (qc_generated_count !== undefined) {
+            if (qc_generated_count != null) {
                 updateFields.push('qc_generated_count = ?');
                 updateValues.push(qc_generated_count);
             }

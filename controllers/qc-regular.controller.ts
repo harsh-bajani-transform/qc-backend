@@ -30,11 +30,18 @@ export const saveRegularQC = async (req: Request, res: Response) => {
       qc_score,
       file_record_count,
       data_generated_count,
+      qc_generated_count,
       qc_file_records,
       error_list,
       error_score,
       comments,
     } = req.body;
+
+    // Backward/forward compatibility:
+    // - older code used `data_generated_count`
+    // - newer frontend sends `qc_generated_count`
+    const resolvedGeneratedCount =
+      data_generated_count ?? qc_generated_count ?? 0;
 
     // Ensure all values are properly handled (undefined -> null)
     const safeParams = {
@@ -48,7 +55,7 @@ export const saveRegularQC = async (req: Request, res: Response) => {
       date_of_file_submission: date_of_file_submission || null,
       qc_score: qc_score || null,
       file_record_count: file_record_count || 0,
-      data_generated_count: data_generated_count || 0,
+      data_generated_count: Number(resolvedGeneratedCount) || 0,
       error_list: error_list ? JSON.stringify(error_list) : null,
       tracker_id: tracker_id || null,
     };

@@ -10,12 +10,14 @@ const mail_controller_1 = require("../controllers/mail.controller");
  * This is for reviewing correction files submitted by agents
  */
 const saveCorrectionQC = async (req, res) => {
+    var _a;
     console.log("[QC Correction] POST /save received.");
     const connection = await (0, db_1.get_db_connection)();
     try {
         await connection.beginTransaction();
         // Extract form data
-        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
+        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
+        const resolvedGeneratedCount = (_a = data_generated_count !== null && data_generated_count !== void 0 ? data_generated_count : qc_generated_count) !== null && _a !== void 0 ? _a : 0;
         // Validate required fields
         if (!logged_in_user_id || !tracker_id || !qa_user_id || !project_id || !task_id) {
             await connection.rollback();
@@ -48,7 +50,7 @@ const saveCorrectionQC = async (req, res) => {
                 'correction',
                 'pending',
                 file_record_count || 0,
-                data_generated_count || 0,
+                Number(resolvedGeneratedCount) || 0,
                 error_list ? JSON.stringify(error_list) : null,
                 qc_file_path || null,
                 tracker_id || null,

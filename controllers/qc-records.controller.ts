@@ -352,6 +352,8 @@ export const saveQCRecord = async (req: Request, res: Response) => {
     Object.keys(req.body),
   );
   console.log(`[QC Record] tracker_id value:`, req.body.tracker_id);
+  console.log(`[QC Record] qc_generated_count value:`, req.body.qc_generated_count);
+  console.log(`[QC Record] qc_generated_count type:`, typeof req.body.qc_generated_count);
   const {
     assistant_manager_id,
     qa_user_id,
@@ -444,7 +446,7 @@ export const saveQCRecord = async (req: Request, res: Response) => {
         updateFields.push('file_record_count = ?');
         updateValues.push(file_record_count);
       }
-      if (qc_generated_count !== undefined) {
+      if (qc_generated_count != null) {
         updateFields.push('qc_generated_count = ?');
         updateValues.push(qc_generated_count);
       }

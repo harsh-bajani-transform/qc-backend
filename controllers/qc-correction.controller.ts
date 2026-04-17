@@ -30,11 +30,15 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
       qc_score,
       file_record_count,
       data_generated_count,
+      qc_generated_count,
       qc_file_records,
       error_list,
       error_score,
       comments,
     } = req.body;
+
+    const resolvedGeneratedCount =
+      data_generated_count ?? qc_generated_count ?? 0;
 
     // Validate required fields
     if (!logged_in_user_id || !tracker_id || !qa_user_id || !project_id || !task_id) {
@@ -76,7 +80,7 @@ export const saveCorrectionQC = async (req: Request, res: Response) => {
           'correction',
           'pending',
           file_record_count || 0,
-          data_generated_count || 0,
+          Number(resolvedGeneratedCount) || 0,
           error_list ? JSON.stringify(error_list) : null,
           qc_file_path || null,
           tracker_id || null,

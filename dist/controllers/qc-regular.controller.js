@@ -10,12 +10,17 @@ const mail_controller_1 = require("../controllers/mail.controller");
  * This is for first-time QC evaluations of submitted files
  */
 const saveRegularQC = async (req, res) => {
+    var _a;
     console.log("[QC Regular] POST /save received.");
     const connection = await (0, db_1.get_db_connection)();
     try {
         await connection.beginTransaction();
         // Extract form data with null checks
-        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
+        const { logged_in_user_id, tracker_id, assistant_manager_id, qa_user_id, agent_id, project_id, task_id, whole_file_path, qc_file_path, date_of_file_submission, qc_score, file_record_count, data_generated_count, qc_generated_count, qc_file_records, error_list, error_score, comments, } = req.body;
+        // Backward/forward compatibility:
+        // - older code used `data_generated_count`
+        // - newer frontend sends `qc_generated_count`
+        const resolvedGeneratedCount = (_a = data_generated_count !== null && data_generated_count !== void 0 ? data_generated_count : qc_generated_count) !== null && _a !== void 0 ? _a : 0;
         // Ensure all values are properly handled (undefined -> null)
         const safeParams = {
             assistant_manager_id: assistant_manager_id || null,
@@ -28,7 +33,7 @@ const saveRegularQC = async (req, res) => {
             date_of_file_submission: date_of_file_submission || null,
             qc_score: qc_score || null,
             file_record_count: file_record_count || 0,
-            data_generated_count: data_generated_count || 0,
+            data_generated_count: Number(resolvedGeneratedCount) || 0,
             error_list: error_list ? JSON.stringify(error_list) : null,
             tracker_id: tracker_id || null,
         };
